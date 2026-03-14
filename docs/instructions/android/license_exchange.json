@@ -1,0 +1,169 @@
+{
+  "_description": "Netflix Android Widevine DRM license exchange data (captured 2026-03-13, L3 forced). Payloads are truncated for size. challengeBase64 contains Widevine CDM protobuf.",
+  "_environment": "Widevine L3 (software) forced. Device: Pixel 4a (5G) / Android 14 / CDM v17.0.0",
+  "licensed_manifest_request": {
+    "_note": "Android combines /manifest + /license into single /licensedManifest request. Supports batch (multiple viewableIds).",
+    "url": "/licensedManifest",
+    "method": "licensedManifest",
+    "flavor": "PRE_FETCH",
+    "drmType": "widevine",
+    "manifestVersion": "v2",
+    "licenseType": "limited",
+    "params_per_viewable": {
+      "viewableId": "81756595",
+      "challenges": {
+        "primary": [{
+          "challengeBase64": "<Widevine CDM protobuf, ~2378 bytes>",
+          "drmSessionId": 1,
+          "clientTime": 1773373148
+        }]
+      },
+      "common_challenge": "<shared Widevine CDM protobuf for all viewableIds>"
+    },
+    "batch_viewable_ids": ["81756595", "80243261", "81774276"]
+  },
+  "licensed_manifest_response": {
+    "_note": "Recovered via L3 Widevine decrypt → CBOR (key 62) → GZIP → JSON. 8 chunks, 456KB total.",
+    "id": 1,
+    "version": 2,
+    "serverTime": 1773373149628,
+    "result": [
+      {
+        "_viewable": "81756595 (MOVIE, 142 min)",
+        "movieId": "81756595",
+        "packageId": "2596051",
+        "duration": 8523000,
+        "drmContextId": "2596051",
+        "playbackContextId": "E3-Bgj5tevcAxKrBD8Cc_xgU8lnmqvxiyt4LKYtO-sU... (truncated)",
+        "video_tracks": [
+          {
+            "trackType": "PRIMARY",
+            "new_track_id": "V:2:1;2;;primary;-1;none;-1;",
+            "dimensionsLabel": "2D",
+            "streams_summary": [
+              {"content_profile": "playready-h264hpl22-dash", "bitrate": 80, "res_w": 480, "res_h": 270, "isDrm": true},
+              {"content_profile": "playready-h264hpl22-dash", "bitrate": 100, "res_w": 480, "res_h": 270, "isDrm": true},
+              {"content_profile": "playready-h264hpl30-dash", "bitrate": 200, "res_w": 608, "res_h": 342, "isDrm": true},
+              {"content_profile": "playready-h264hpl30-dash", "bitrate": 350, "res_w": 608, "res_h": 342, "isDrm": true},
+              {"content_profile": "playready-h264hpl30-dash", "bitrate": 560, "res_w": 768, "res_h": 432, "isDrm": true},
+              {"content_profile": "playready-h264hpl30-dash", "bitrate": 750, "res_w": 768, "res_h": 432, "isDrm": true},
+              {"content_profile": "playready-h264hpl30-dash", "bitrate": 1050, "res_w": 960, "res_h": 540, "isDrm": true}
+            ],
+            "_note": "L3 max resolution: 960x540. L1 would include up to 1920x1080+ with HEVC HDR10."
+          }
+        ],
+        "audio_tracks_summary": {
+          "languages": ["ja", "en", "pt-BR", "es", "es-ES", "fr", "de", "it", "pl", "fil", "hu"],
+          "profiles": ["xheaac-dash", "heaac-2-dash"],
+          "channels": "2.0",
+          "bitrates": [32, 64, 96, 192],
+          "total_tracks": 19,
+          "_note": "Each language has xheaac-dash + heaac-2-dash tracks with 4 bitrate options"
+        },
+        "timedtexttracks_summary": {
+          "total_tracks": 57,
+          "format": "imsc1.1",
+          "languages": ["en", "ja", "de", "es", "es-ES", "fr", "fil", "hu", "it", "pl", "pt-BR"],
+          "types": ["subtitles", "closedcaptions"],
+          "_note": "Each has downloadableIds.imsc1.1 with CDN URLs and sha1 hash"
+        },
+        "servers": [
+          {
+            "id": 140368,
+            "name": "c062.osa001.ix.nflxvideo.net",
+            "rank": 1,
+            "type": "OPEN_CONNECT_APPLIANCE",
+            "dns": {"host": "ipv4-c062-osa001-ix.1.oca.nflxvideo.net", "ipv4": "45.57.82.139"}
+          },
+          {
+            "id": 140566,
+            "name": "c010.osa003.ix.nflxvideo.net",
+            "rank": 2,
+            "type": "OPEN_CONNECT_APPLIANCE",
+            "dns": {"host": "ipv4-c010-osa003-ix.1.oca.nflxvideo.net", "ipv4": "23.246.52.11"}
+          },
+          {
+            "id": 159199,
+            "name": "c106.osa001.ix.nflxvideo.net",
+            "rank": 3,
+            "type": "OPEN_CONNECT_APPLIANCE",
+            "dns": {"host": "ipv4-c106-osa001-ix.1.oca.nflxvideo.net", "ipv4": "45.57.84.3"}
+          }
+        ],
+        "links": {
+          "events": {
+            "href": "/events?playbackContextId=E3-Bgj5tevc...&esn=NFANDROID1-PRV-P-L3-GOOGLPIXEL%3D4A%3D%3D5G%3D-22594-...",
+            "rel": "events"
+          },
+          "ldl": {
+            "href": "/license?licenseType=limited&playbackContextId=E3-Bgj5tevc...&esn=NFANDROID1-PRV-P-L3-...&drmContextId=2596051",
+            "rel": "license"
+          },
+          "license": {
+            "href": "/license?licenseType=standard&playbackContextId=E3-Bgj5tevc...&esn=NFANDROID1-PRV-P-L3-...&drmContextId=2596051",
+            "rel": "license"
+          }
+        }
+      }
+    ],
+    "_note_batch": "result is an array with one entry per viewableId. 3 entries in this capture."
+  },
+  "standard_license_request": {
+    "_note": "Sent after /licensedManifest, using playbackContextId from manifest response links.license.href",
+    "url": "/license?licenseType=standard&playbackContextId=E3-Bgj5tevcAxKrBD8Cc_xgU8lnmqvxiy...&esn=NFANDROID1-PRV-P-L3-GOOGLPIXEL%3D4A%3D%3D5G%3D-22594-...&drmContextId=2596051",
+    "params": {
+      "clientTime": 1773373168,
+      "challengeBase64": "<Widevine CDM protobuf, ~3.4KB — contains device cert, OEMCrypto Level3 Code, ESN with L3 marker>",
+      "challengeBase64_contents": {
+        "device_certificate": {
+          "esn": "NFANDROID1-PRV-P-L3-GOOGLPIXEL=4A==5G=-22594-3E369F1C9B189ED664E13DEEEE9BACB67684B4FE6283537D1A67810BFE73E371",
+          "movieid": "81756595",
+          "issuetime": 1773373148,
+          "salt": "3598263455819263519576642966605"
+        },
+        "oem_crypto_build_information": "OEMCrypto Level3 Code May 20 2022 21:36:54",
+        "widevine_cdm_version": "17.0.0",
+        "device_name": "bramble",
+        "architecture_name": "arm64-v8a"
+      },
+      "xid": "7616579701369171345"
+    },
+    "languages": ["en-JP"]
+  },
+  "standard_license_response": {
+    "_note": "Recovered via L3 Widevine decrypt → CBOR (key 62) → GZIP → JSON",
+    "id": 1,
+    "version": 2,
+    "serverTime": 1773373169221,
+    "result": {
+      "licenseResponseBase64": "<Base64-encoded Widevine license binary, contains encrypted content keys>",
+      "licenseResponseBase64_contents": {
+        "_note": "Unlike iOS FairPlay (JSON with CHALLENGES/RESPONSES), Widevine license is a protobuf binary",
+        "embedded_json": {
+          "version": "1.0",
+          "esn": "NFANDROID1-PRV-P-L3-GOOGLPIXEL=4A==5G=-22594-...",
+          "issuetime": 1773373148,
+          "movieid": "81756595",
+          "salt": "35982634558192635195766429666057"
+        },
+        "license_metadata": {
+          "security_level": "0x0784",
+          "expiry_duration": "0xC8D102",
+          "key_id": "CE66E4B447F964AC190000000000000"
+        }
+      },
+      "secureStopExpected": false,
+      "links": {
+        "releaseLicense": {
+          "href": "/releaseLicense?drmLicenseContextId=E3-Bgj5tevc...;EDEF8BA9-79D6-4ACE-A3C8-27DCD51D21ED;STANDARD;1773373169202",
+          "rel": "releaseLicense"
+        }
+      },
+      "expiration": 1773373168000,
+      "drmGroupId": "132",
+      "licenseType": "standard"
+    },
+    "common": {},
+    "from": "playapi"
+  }
+}

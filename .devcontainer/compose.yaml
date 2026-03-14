@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../:/home/vscode/app:cached
+      - venv:/home/vscode/app/.venv
+    tty: true
+    stdin_open: true
+
+volumes:
+  venv:
+    driver: local
