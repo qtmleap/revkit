@@ -21,6 +21,7 @@
         "ghcr.io/devcontainers/features/common-utils:2": {
             "configureZshAsDefaultShell": true
         },
+        "ghcr.io/devcontainers/features/github-cli:1": {},
         "ghcr.io/jsburckhardt/devcontainer-features/uv:1": {},
         "ghcr.io/christophermacgown/devcontainer-features/direnv:1": {}
     },
