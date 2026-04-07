@@ -115,16 +115,17 @@ JavaScript側は以下の形式で標準出力にログを送る:
 
 | パス | 役割 |
 |---|---|
-| `hook_netflix.js` | iOS用フックスクリプト（ObjC/C++関数のフック） |
-| `hook_netflix_android.js` | Android用フックスクリプト（Java/JNIメソッドのフック） |
-| `hook_msl.js` | MSL暗号関数の個別フック |
-| `hook_cronet.js` | Cronetネットワーク層のフック |
-| `hook_esn.js` | ESN取得用フック |
-| `hook_headers.js` | HTTPヘッダ/Cookie取得用フック |
-| `run.py` | メインランナー（iOS/Android両対応、`--android` フラグで切替） |
-| `run_android.sh` | Android用シェルラッパー |
-| `run_cronet.py` | Cronet用ランナー |
-| `__handlers__/` | Objectionハンドラ |
+| `packages/frida/` | Frida フックスクリプト (TypeScript ソース + ビルド) |
+| `packages/frida/src/ios/` | iOS用フック (ObjC/C++) |
+| `packages/frida/src/android/` | Android用フック (Java/JNI) |
+| `packages/frida/src/chrome/` | Chrome CDM フック |
+| `packages/frida/src/common/` | 共通ユーティリティ (base64, LZW, MSLプロセッサー) |
+| `packages/chrome-extension/` | Chrome拡張機能 (Netflix MSL + EME Capture) |
+| `packages/proxyman/` | Proxyman アドオン |
+| `tools/run.py` | メインランナー（iOS/Android両対応、`--android` フラグで切替） |
+| `tools/run_android.sh` | Android用シェルラッパー |
+| `tools/run_cronet.py` | Cronet用ランナー |
+| `handlers/` | Objectionハンドラ |
 
 ## 新しいフックを書くときの方針
 
