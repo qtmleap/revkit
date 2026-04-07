@@ -121,6 +121,26 @@ Host iPhone
   LocalForward 27042 127.0.0.1:27042
 ```
 
+**iproxy (USB 経由)** — macOS ユーザー名やデバイス IP が不要:
+
+macOS 側で iproxy を起動しておく:
+
+```bash
+iproxy 2222 22 &
+iproxy 27042 27042 &
+```
+
+SSH config:
+
+```sshconfig
+Host iPhone
+  HostName host.docker.internal
+  User root
+  Port 2222
+```
+
+Frida は `frida -H 127.0.0.1` ではなく `frida -H host.docker.internal` で接続する。
+
 ### 接続経路
 
 | 用途 | 方向 | 経路 |
