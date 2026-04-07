@@ -11,5 +11,11 @@
     ],
     "gitdoc.pushMode": "push",
     "gitdoc.timeZone": "Asia/Tokyo",
-    "gitlens.ai.generateCommitMessage.customInstructions": "Generate a commit message in Japanese following the Conventional Commits specification and `commitlint` rules. Use the format `<type>(<scope>): <short description>` and choose `<type>` from `build`, `ci`, `docs`, `feat`, `fix`, `perf`, `chore`, `refactor`, `revert`, `format`, `test`. Limit `<short description>` to 72 characters. If `<short description>` starts with an English word, it must be in lowercase."
+    "gitlens.ai.generateCommitMessage.customInstructions": "Generate a commit message in Japanese following the Conventional Commits specification and `commitlint` rules. Use the format `<type>(<scope>): <short description>` and choose `<type>` from `build`, `ci`, `docs`, `feat`, `fix`, `perf`, `chore`, `refactor`, `revert`, `format`, `test`. Limit `<short description>` to 72 characters. If `<short description>` starts with an English word, it must be in lowercase.",
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.venv": true,
+        "**/.ruff_cache": true,
+        "**/cache": true
+    }
 }

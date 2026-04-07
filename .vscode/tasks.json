@@ -1,0 +1,132 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        // ── Build ──
+        {
+            "label": "frida: build (iOS)",
+            "type": "shell",
+            "command": "npm run build:ios",
+            "options": { "cwd": "${workspaceFolder}/packages/frida" },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "frida: build (Android)",
+            "type": "shell",
+            "command": "npm run build:android",
+            "options": { "cwd": "${workspaceFolder}/packages/frida" },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "frida: build (Chrome CDM)",
+            "type": "shell",
+            "command": "npm run build:chrome",
+            "options": { "cwd": "${workspaceFolder}/packages/frida" },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "chrome-extension: build",
+            "type": "shell",
+            "command": "bun run build",
+            "options": { "cwd": "${workspaceFolder}/packages/chrome-extension" },
+            "group": "build",
+            "problemMatcher": []
+        },
+        // ── Watch ──
+        {
+            "label": "frida: watch (iOS)",
+            "type": "shell",
+            "command": "npm run watch:ios",
+            "options": { "cwd": "${workspaceFolder}/packages/frida" },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "frida: watch (Android)",
+            "type": "shell",
+            "command": "npm run watch:android",
+            "options": { "cwd": "${workspaceFolder}/packages/frida" },
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        // ── Run (Hook) ──
+        {
+            "label": "frida: hook iOS (Netflix)",
+            "type": "shell",
+            "command": "uv run python tools/run.py packages/frida/hook_netflix.js",
+            "dependsOn": "frida: build (iOS)",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "frida: hook Android (Netflix)",
+            "type": "shell",
+            "command": "uv run python tools/run.py --android packages/frida/hook_netflix_android.js",
+            "dependsOn": "frida: build (Android)",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        // ── Tweak (Theos) ──
+        {
+            "label": "tweak: build",
+            "type": "shell",
+            "command": "docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/${relativeFileDirname}",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "tweak: clean",
+            "type": "shell",
+            "command": "docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/${relativeFileDirname} clean",
+            "problemMatcher": []
+        },
+        {
+            "label": "tweak: package",
+            "type": "shell",
+            "command": "docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/${relativeFileDirname} package",
+            "group": "build",
+            "problemMatcher": []
+        },
+        // ── Proxy ──
+        {
+            "label": "mitmproxy: Netflix iOS capture",
+            "type": "shell",
+            "command": "uv run mitmdump --listen-port 9080 --set block_global=false --ssl-insecure -s packages/mitmproxy/netflix_ios_capture.py",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "frida: hook Chrome CDM",
+            "type": "shell",
+            "command": "uv run python tools/run_chrome_cdm.py",
+            "dependsOn": "frida: build (Chrome CDM)",
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}

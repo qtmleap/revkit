@@ -265,18 +265,40 @@ $RECYCLE.BIN/
 *.apk
 *.ipa
 *.dylib
+*.mp4
 
 # Extracted / dumped
 extracted_ipa/
 extracted_apk/
 
+# Assets (large binaries)
+assets/
+
 # Logs & captures
 logs/
+raws/
+cache/
+output/
 cookie.txt
+cookies.txt
 headers.md
+capture.ndjson
+console.log
 
 # Locks
 uv.lock
 
 # Secrets / env
 .env
+.envrc.local
+secrets/
+
+# Node.js (frida-compile toolchain)
+node_modules/
+
+# Frida compiled output
+packages/frida/*.js
+!packages/frida/src/**/*.js
+
+# Chrome extension build output
+packages/chrome-extension/dist/
