@@ -22,6 +22,7 @@ user_invocable: true
    - **frida-engineer**: Frida フックスクリプト、ランタイム解析
    - **mitmproxy-engineer**: mitmproxy アドオン、トラフィックキャプチャ
    - **python-engineer**: MSL クライアント、デコーダー、データ処理
+   - **log-monitor**: Frida/mitmproxy/Tweak のログ監視、MSL 復号状況レポート
 
 2. 各エージェントに **Plan モード** でサブタスク提案をさせる:
    - Agent ツールで各エージェントを起動し、「この目標に対してあなたが担当すべきサブタスクを箇条書きで提案してください（コードは書かないで）」と依頼
@@ -71,13 +72,13 @@ user_invocable: true
 1. TodoWrite でタスクリストを作成
 2. 各エージェントを Agent ツールで起動（可能な限り並列）
    - 各エージェントには具体的なファイルパス、変更内容、制約を明示
-3. macOS 側でのビルドが必要な場合はユーザーに指示:
+3. Tweak ビルドは theos サイドカーコンテナで実行:
+   ```bash
+   docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> clean
+   docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> package install THEOS_DEVICE_IP=192.168.0.49
    ```
-   ホスト Mac で以下を実行してください:
-   cd packages/tweak/NetflixSSLBypass
-   make clean && make package install THEOS_DEVICE_IP=192.168.0.49
-   ```
-4. SSH でデバイスのログを確認
+4. iOS デバイスのログ確認は iproxy 経由 (`ssh -p 2222 root@host.docker.internal`)
+   接続できない場合はユーザーにホスト Mac で `iproxy 2222 22` の実行を依頼する
 5. 各エージェントの結果をレビュー
 
 ## Phase 5: レポート

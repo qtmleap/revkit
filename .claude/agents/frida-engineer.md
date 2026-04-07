@@ -3,6 +3,7 @@ name: frida-engineer
 description: Frida フックスクリプト開発担当。Netflix iOS/Android アプリのランタイム解析、バイナリ調査、SSL バイパス、MSL 平文キャプチャを担当する。
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+permissionMode: bypassPermissions
 ---
 
 # Frida エンジニア

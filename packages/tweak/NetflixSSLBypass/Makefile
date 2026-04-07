@@ -7,9 +7,12 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = NetflixSSLBypass
 
-NetflixSSLBypass_FILES = Sources/NetflixSSLBypass/Tweak.x.swift Sources/NetflixSSLBypass/ctor.c
-NetflixSSLBypass_SWIFT_FLAGS = -ISources/NetflixSSLBypass
-NetflixSSLBypass_FRAMEWORKS = Foundation
-NetflixSSLBypass_LDFLAGS = -lsubstrate
+NetflixSSLBypass_FILES = $(shell find Sources/NetflixSSLBypass -name '*.swift') $(shell find Sources/NetflixSSLBypassC -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp')
+NetflixSSLBypass_SWIFTFLAGS = -ISources/NetflixSSLBypassC/include
+NetflixSSLBypass_CFLAGS = -fobjc-arc -ISources/NetflixSSLBypassC/include
+NetflixSSLBypass_FRAMEWORKS = UIKit
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+after-install::
+	install.exec "chmod 755 /var/jb/Library/MobileSubstrate/DynamicLibraries/NetflixSSLBypass.dylib"

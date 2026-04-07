@@ -3,6 +3,7 @@ name: mitmproxy-engineer
 description: mitmproxy アドオン開発担当。Netflix iOS/Android のトラフィックキャプチャ、TLS パススルー設定、コンソール出力フィルタリング、プロキシ設定を担当する。
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+permissionMode: bypassPermissions
 ---
 
 # mitmproxy エンジニア

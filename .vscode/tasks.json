@@ -105,6 +105,20 @@
             "group": "build",
             "problemMatcher": []
         },
+        // ── oslog ──
+        {
+            "label": "oslog: stream (Charon)",
+            "type": "shell",
+            "command": "bash .vscode/scripts/oslog_stream.sh",
+            "options": { "cwd": "${workspaceFolder}" },
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": false
+            },
+            "problemMatcher": []
+        },
         // ── Proxy ──
         {
             "label": "mitmproxy: Netflix iOS capture",

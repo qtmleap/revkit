@@ -3,6 +3,7 @@ name: tweak-engineer
 description: iOS Tweak 開発担当。Orion/Theos による Substrate tweak 開発、ElleKit C フック、MSL 復号・ログ出力、Netflix バイナリパッチを担当する。
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+permissionMode: bypassPermissions
 ---
 
 # Tweak エンジニア
@@ -78,14 +79,42 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 ## iOS デバイス情報
 
-- IP: `192.168.0.49`
-- SSH: `root@192.168.0.49` (パスワード: `alpine`)
 - OS: iOS 15.8.3
 - JB: Dopamine (rootless)
 - パス: `/var/jb/` (rootless prefix)
 - Hooking: ElleKit 1.1.3
 - Orion: dev.theos.orion14 1.0.2
 - Netflix: Argo v15.48.1 (com.netflix.Netflix)
+
+### デバイス接続方法
+
+接続方法は 2 通りある。**iproxy (USB) 経由を優先** し、失敗したら Wi-Fi 直接を試す。
+
+| 方式 | SSH コマンド | Theos インストール |
+|------|-------------|-------------------|
+| **iproxy (USB)** | `ssh -p 2222 root@host.docker.internal` | `THEOS_DEVICE_IP=host.docker.internal THEOS_DEVICE_PORT=2222` |
+| **Wi-Fi 直接** | `ssh root@192.168.0.49` | `THEOS_DEVICE_IP=192.168.0.49` |
+
+theos コンテナから実行する場合:
+```bash
+# iproxy 経由
+docker compose -f .devcontainer/compose.yaml exec theos ssh -p 2222 root@host.docker.internal '<command>'
+
+# Wi-Fi 直接
+docker compose -f .devcontainer/compose.yaml exec theos ssh root@192.168.0.49 '<command>'
+```
+
+### アプリ起動方法
+
+Netflix アプリはバンドル ID 指定で `uiopen` を使って起動する:
+```bash
+ssh -p 2222 root@host.docker.internal 'uiopen --bundleid com.netflix.Netflix'
+```
+
+起動後、プロセス生存を確認:
+```bash
+ssh -p 2222 root@host.docker.internal 'sleep 8 && killall -0 Argo && echo OK'
+```
 
 ## Netflix バイナリ構造 (解析済み)
 
@@ -151,3 +180,74 @@ Tweak 内で以下を実現する:
 - Python: `uv run ruff format` (Python ファイルを編集した場合)
 - 不明な点を推測しない
 - 変更前に影響範囲を確認する
+
+## ファイル分割ルール
+
+- 1 ファイルが **300 行を超えたら** 機能単位で分割を検討する
+- 分割の粒度: レイヤー (SSL バイパス、暗号フック、ユーティリティ等) ごとに別ファイル
+- 新ファイルを追加したら `Makefile` の `_FILES` に追加すること
+- 共通型定義・ユーティリティは専用ファイル (例: `Helpers.swift`) に切り出す
+- ヘッダーブリッジが必要な場合は `*-Bridging-Header.h` を使用
+
+## 実行確認ルール
+
+- ビルド成功後は **デバイスにインストールして実行時にクラッシュしないことを確認** する
+- 実行は Frida spawn ではなく **SSH でアプリを通常起動** し、プロセスが落ちないことを確認する
+- Frida 単体での spawn (`frida -U -f com.netflix.Netflix`) は使わない (objection 経由以外禁止)
+- **dylib パーミッション**: Theos のインストール後に `chmod 755` を必ず実行する（デフォルト 700 だと mobile ユーザーが読めず Tweak がロードされない）
+
+### SSH コマンドリファレンス (theos コンテナから実行)
+
+```bash
+SSH="docker compose -f .devcontainer/compose.yaml exec theos ssh -p 2222 root@host.docker.internal"
+
+# アプリ起動
+$SSH 'uiopen --bundleid com.netflix.Netflix'
+
+# プロセス生存確認
+$SSH 'killall -0 Argo && echo OK || echo CRASH'
+
+# プロセス kill
+$SSH 'killall Argo 2>/dev/null'
+
+# oslog でリアルタイムログ確認 (NFXBypass のみ)
+$SSH 'timeout 10 oslog | grep NFXBypass'
+
+# Tweak ログファイル確認
+$SSH 'cat $(find /var/mobile -name "msl_keys.jsonl" 2>/dev/null | head -1) 2>/dev/null'
+
+# dylib パーミッション修正
+$SSH 'chmod 755 /var/jb/Library/MobileSubstrate/DynamicLibraries/NetflixSSLBypass.dylib'
+
+# Tweak アンインストール
+$SSH 'dpkg -r com.local.netflixsslbypass'
+
+# Tweak インストール状態確認
+$SSH 'dpkg -l | grep netflixssl'
+```
+
+### インストール→起動確認の手順
+
+```bash
+# 1. kill
+$SSH 'killall Argo 2>/dev/null'
+
+# 2. build + install
+docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/NetflixSSLBypass package install THEOS_DEVICE_IP=host.docker.internal THEOS_DEVICE_PORT=2222
+
+# 3. パーミッション修正 (必須)
+$SSH 'chmod 755 /var/jb/Library/MobileSubstrate/DynamicLibraries/NetflixSSLBypass.dylib'
+
+# 4. 起動
+$SSH 'uiopen --bundleid com.netflix.Netflix'
+
+# 5. 待機 + 確認
+sleep 12
+$SSH 'killall -0 Argo && echo OK || echo CRASH'
+```
+
+### Frida について
+
+- app コンテナから `frida-ps -H host.docker.internal:27042` はハングする（TTY + プロトコル問題）
+- Frida を使う場合は **ユーザーにホスト側で実行してもらう**
+- Frida attach は起動後 PID 指定: `frida -U -p <pid>` (ホスト側で実行)

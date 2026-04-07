@@ -1,9 +1,9 @@
-Package: com.local.netflixsslbypass
-Name: Netflix SSL Bypass
+Package: work.tkgstrator.argodecryptor
+Name: Netflix Decryptor
 Version: 1.0.0
 Architecture: iphoneos-arm64
-Description: Bypass SSL pinning for appboot.netflix.com (NflxTrustStore + NflxPinnedCertEvaluator + IosMslClient)
-Maintainer: local
-Author: local
+Description: Netflix iOS tweak
+Maintainer: NEVER KNOWS BEST
+Author: tkgstrator
 Section: Tweaks
 Depends: mobilesubstrate, dev.theos.orion14 (>= 1.0.1)
