@@ -306,3 +306,4 @@ packages/chrome-extension/dist/
 # Theos build artifacts
 packages/tweak/**/.theos/
 packages/tweak/**/packages/*.deb
+mitmproxy-ca-cert.pem
