@@ -1,43 +1,35 @@
-# Mobile RE Toolkit
+# revkit
 
-Frida, Chrome 拡張機能, mitmproxy を使ったモバイルアプリのリバースエンジニアリング環境。
+iOS / Android アプリのリバースエンジニアリングツールキット。
 
-iOS, Android, Chrome の各プラットフォームにおけるアプリの通信プロトコル・認証フロー・DRM を動的解析するためのツールキット。解析対象ごとのフックスクリプトや解析結果は `targets/` 以下にサブモジュールとして管理し、本リポジトリは汎用ツール基盤として公開可能な構成になっている。
+- **iOS Tweak 開発** — Theos/Orion による Substrate Tweak のビルド・デプロイ (arm64, rootless)
+- **Frida フック** — iOS / Android アプリのランタイム解析・動的インストルメンテーション
+- **mitmproxy** — HTTPS トラフィックキャプチャ・プロトコルデコード
+- **バイナリ解析** — Ghidra, radare2, jadx, ipsw による APK / IPA の静的解析
 
 ## 構成
 
 ```
 .
 ├── packages/
-│   ├── frida/                          # Frida フックスクリプト (TypeScript → JS)
-│   │   ├── src/
-│   │   │   ├── ios/                    #   iOS 用フック (ObjC/C++)
-│   │   │   ├── android/                #   Android 用フック (Java/JNI)
-│   │   │   ├── chrome/                 #   Chrome 用フック (CDM vtable 等)
-│   │   │   └── common/                 #   共通ユーティリティ
-│   │   └── package.json
-│   ├── chrome-extension/               # Chrome 拡張 (Web Crypto/EME/HTTP キャプチャ)
-│   │   ├── src/
-│   │   └── manifest.json
-│   └── proxyman/                       # Proxyman アドオン
+│   ├── frida/                  # Frida フックスクリプト (TypeScript → JS)
+│   │   └── src/
+│   │       ├── ios/            #   iOS 用フック (ObjC/C++)
+│   │       ├── android/        #   Android 用フック (Java/JNI)
+│   │       └── common/         #   共通ユーティリティ
+│   ├── mitmproxy/              # mitmproxy アドオン
+│   └── tweak/                  # iOS Tweak (Theos/Orion)
 │
-├── tools/                              # Python ユーティリティ
-│   ├── run.py                          #   Frida フック実行ランナー (iOS/Android)
-│   ├── transformers/                   #   ログ変換 (Frida → 統一フォーマット)
-│   │   ├── base.py                     #     共通 Transformer 基底クラス
-│   │   ├── ios.py                      #     iOS 固有マッピング
-│   │   └── android.py                  #     Android 固有マッピング
+├── tools/                      # Python ユーティリティ
+│   ├── run.py                  #   Frida フック実行ランナー
+│   ├── transformers/           #   ログ変換 (Frida → 統一フォーマット)
 │   └── ...
 │
-├── handlers/                           # Objection ハンドラ (CommonCrypto, Security 等)
-│
-├── targets/                            # 解析対象 (サブモジュール, .gitignore)
-│   └── <target-name>/                  #   対象固有のスクリプト・ドキュメント・ログ
-│
-├── docs/                               # 解析結果・仕様書
-├── assets/                             # IPA/APK バイナリ (.gitignore)
-├── raws/                               # Frida 生キャプチャログ (.gitignore)
-└── logs/                               # 変換済みログ (.gitignore)
+├── handlers/                   # Objection ハンドラ (CommonCrypto, Security 等)
+├── docs/                       # 解析結果・仕様書
+├── assets/                     # IPA/APK バイナリ (.gitignore)
+├── raws/                       # Frida 生キャプチャログ (.gitignore)
+└── logs/                       # 変換済みログ (.gitignore)
 ```
 
 ## 開発環境
@@ -49,10 +41,10 @@ DevContainer で構築済み。`Rebuild Container` で全ツールが揃う。
 | ツール | 用途 |
 |---|---|
 | Python 3.12 (uv) | ユーティリティ、ログ変換、解析スクリプト |
-| Node.js | Frida スクリプトのビルド (frida-compile) |
+| Node.js 25.x | Frida スクリプトのビルド (frida-compile) |
 | Bun | Chrome 拡張のビルド |
 | Frida 17.x | 動的インストルメンテーション |
-| mitmproxy | プログラマブル HTTPS プロキシ (コンテナ内で完結) |
+| mitmproxy | プログラマブル HTTPS プロキシ |
 
 ### リバースエンジニアリング
 
@@ -65,31 +57,60 @@ DevContainer で構築済み。`Rebuild Container` で全ツールが揃う。
 | ipsw | iOS Mach-O 解析・ObjC/Swift クラスダンプ |
 | lief (Python) | Mach-O/ELF バイナリパーサー |
 | capstone (Python) | ARM64 ディスアセンブラ |
+| unicorn (Python) | CPU エミュレーション |
+| pywidevine (Python) | Widevine DRM 解析 |
+
+### iOS Tweak 開発
+
+| ツール | 用途 |
+|---|---|
+| Theos | Tweak ビルドシステム |
+| Orion | Swift Tweak フレームワーク |
+| Swift 5.8 (cross-compile) | iOS 向けクロスコンパイル |
+| iOS SDK 15.6 / 16.5 | ビルドターゲット |
+
+## macOS ホスト設定
+
+DevContainer はDocker Desktop の Linux VM 内で動作するため、LAN 上のデバイス (iOS/Android) と直接通信できない。以下の設定で macOS を踏み台にして SSH / Frida を中継する。
+
+### 1. リモートログインを有効化
+
+**システム設定 → 一般 → 共有 → リモートログイン** をオンにする。
+
+### 2. SSH 公開鍵を登録
+
+コンテナ内の鍵を macOS の authorized_keys に追加する:
+
+```bash
+cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+```
+
+### 3. VS Code ポートフォワーディング設定
+
+`.vscode/settings.json` に以下を追加して、mitmproxy のポートを LAN に公開する:
+
+```json
+"remote.localPortHost": "allInterfaces"
+```
+
+### 接続経路
+
+| 用途 | 方向 | 経路 |
+|------|------|------|
+| **SSH** | コンテナ → デバイス | `ssh iPhone` (ProxyJump で macOS を経由) |
+| **Frida** | コンテナ → デバイス | SSH の LocalForward で 127.0.0.1:27042 → デバイス:27042 |
+| **mitmproxy** | デバイス → コンテナ | デバイスのプロキシを macOS の LAN IP:9080 に設定 |
 
 ## 使い方
 
-### ビルド
+### Frida フック
 
 ```bash
-# Frida フックスクリプト
-cd packages/frida
-npm run build:ios       # → hook_netflix.js
-npm run build:android   # → hook_netflix_android.js
-npm run build:chrome    # → hook_chrome_cdm.js
-
-# Chrome 拡張
-cd packages/chrome-extension
-bun run build
-```
-
-### キャプチャ実行
-
-```bash
-# iOS (起動中のアプリにアタッチ、未起動なら自動で spawn)
-uv run python tools/run.py packages/frida/hook_netflix.js
+# iOS (objection 経由で spawn)
+uv run python tools/run.py packages/frida/<script>.js
 
 # Android (spawn モード)
-uv run python tools/run.py --android packages/frida/hook_netflix_android.js
+uv run python tools/run.py --android packages/frida/<script>.js
 ```
 
 `.env` にデバイスの IP を設定:
@@ -99,13 +120,23 @@ IOS_HOST=192.168.x.x
 ANDROID_HOST=192.168.x.x
 ```
 
-### ログ変換
-
-Frida の生ログを統一フォーマット (Chrome 拡張互換) に変換:
+### mitmproxy
 
 ```bash
-python -m tools.transformers.ios raws/ios/20260404/capture.jsonl
-python -m tools.transformers.android raws/android/20260404/capture.jsonl
+uv run mitmdump -p 8080 -s packages/mitmproxy/<addon>.py
+```
+
+### iOS Tweak (Theos)
+
+```bash
+# ビルド
+make -C packages/tweak/<tweak名>
+
+# パッケージ (.deb 生成)
+make -C packages/tweak/<tweak名> package
+
+# デバイスへのインストール
+make -C packages/tweak/<tweak名> package install THEOS_DEVICE_IP=<デバイスIP>
 ```
 
 ### バイナリ解析
@@ -114,38 +145,9 @@ python -m tools.transformers.android raws/android/20260404/capture.jsonl
 # iOS: ObjC/Swift クラスダンプ
 ipsw macho info <binary> --class-dump
 
-# iOS: 逆アセンブル (Python)
-uv run python -c "import lief, capstone; ..."
-
 # Android: APK 逆コンパイル
 jadx -d /tmp/out <apk>
 
 # Ghidra ヘッドレス解析
 analyzeHeadless /tmp/project name -import <binary>
 ```
-
-### HTTPS プロキシ
-
-```bash
-# コンテナ内でプロキシ起動
-uv run mitmdump -p 8080 -s tools/mitmproxy_addon.py
-
-# デバイス側: Wi-Fi プロキシを <コンテナIP>:8080 に設定
-# Frida の SSL pinning bypass と併用
-```
-
-## 解析対象の追加
-
-新しい解析対象を追加するには:
-
-```bash
-# targets/ 以下にサブモジュールとして追加
-git submodule add <repo-url> targets/<target-name>
-```
-
-各 target リポジトリには対象固有の以下を含める:
-
-- フックスクリプト (TypeScript)
-- 解析結果ドキュメント
-- プロトコル仕様書
-- キャプチャログ・バイナリ等の秘匿データ
