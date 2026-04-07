@@ -214,3 +214,30 @@ class NetflixCrypto:
             self.rsa_public_key = self.rsa_private_key.public_key()
 
         return bool(self.encryption_key and self.sign_key)
+
+    # ---- Scheme 3 (DH/ECDH) 鍵取り込み ----
+
+    def import_session_keys(self, enc_key: bytes, sign_key: bytes) -> None:
+        """Frida でキャプチャした鍵素材を直接インポートする (Scheme 3 用).
+
+        enc_key  : AES-128 暗号化鍵 (16 bytes)
+        sign_key : HMAC-SHA256 署名鍵 (32 bytes)
+
+        設定後は既存の encrypt / decrypt / sign がそのまま動作する。
+        """
+        self.encryption_key = enc_key
+        self.sign_key = sign_key
+
+    def import_keys_from_file(self, path: str) -> None:
+        """Frida が出力した鍵素材 JSON を読み込む (Scheme 3 用).
+
+        JSON 形式: {"enc_key": "<hex>", "sign_key": "<hex>"}
+        """
+        import json
+
+        with open(path) as f:
+            data = json.load(f)
+
+        enc_hex: str = data["enc_key"]
+        sign_hex: str = data["sign_key"]
+        self.import_session_keys(bytes.fromhex(enc_hex), bytes.fromhex(sign_hex))

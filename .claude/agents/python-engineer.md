@@ -3,6 +3,7 @@ name: python-engineer
 description: Python 開発担当。MSL クライアント実装、CBOR/JSON デコーダー、暗号処理、データ解析ツールを担当する。
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+permissionMode: bypassPermissions
 ---
 
 # Python エンジニア

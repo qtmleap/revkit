@@ -36,3 +36,8 @@ dependencies = [
     "capstone>=5.0.7",
     "mitmproxy>=12.2.1",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.9",
+]

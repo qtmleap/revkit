@@ -131,7 +131,7 @@ class CronetCapture:
 
         # セッションディレクトリ
         session_id = datetime.now().strftime("%Y%m%d")
-        self.session_dir = Path("logs") / f"android_{session_id}"
+        self.session_dir = Path("raws") / "android" / session_id
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.capture_file = self.session_dir / "capture.jsonl"
 
