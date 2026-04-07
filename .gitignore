@@ -302,3 +302,7 @@ packages/frida/*.js
 
 # Chrome extension build output
 packages/chrome-extension/dist/
+
+# Theos build artifacts
+packages/tweak/**/.theos/
+packages/tweak/**/packages/*.deb
