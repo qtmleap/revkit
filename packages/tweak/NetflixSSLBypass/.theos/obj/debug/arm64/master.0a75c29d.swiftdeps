@@ -1,0 +1,7 @@
+version: "Swift version 5.8 (swift-5.8-RELEASE)"
+options: "70b890affb872fffd4b2e4f8acb5ce5d613949532301d973b3ed7298fdd0b01d"
+build_start_time: [1775526929, 980587000]
+build_end_time: [1775526931, 454484000]
+inputs:
+  "/home/vscode/app/packages/tweak/NetflixSSLBypass/.theos/obj/debug/arm64/generated/NetflixSSLBypass.xc.swift": !private [1775526929, 0]
+  "Sources/NetflixSSLBypass/Tweak.x.swift": !private [1775524587, 0]
