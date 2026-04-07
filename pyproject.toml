@@ -1,7 +1,7 @@
 [project]
-name = "frida-objection-wrapper"
+name = "revkit"
 version = "0.1.0"
-description = "Frida and Objection wrapper for mobile application security testing."
+description = "Reverse engineering toolkit for mobile application security research."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -38,6 +38,4 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "ruff>=0.15.9",
-]
+dev = ["ruff>=0.15.9"]

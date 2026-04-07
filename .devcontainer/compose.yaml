@@ -6,17 +6,7 @@ services:
     volumes:
       - ../:/home/vscode/app:cached
       - venv:/home/vscode/app/.venv
-    ports:
-      - 9080:9080
-    tty: true
-    stdin_open: true
-
-  theos:
-    build:
-      context: ./theos
-      dockerfile: Dockerfile
-    volumes:
-      - ../:/home/vscode/app:cached
+    network_mode: host
     tty: true
     stdin_open: true
 

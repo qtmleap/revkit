@@ -33,34 +33,34 @@ docs/
 
 ## Tweak 開発 (Theos/Orion)
 
-Theos ビルド環境は `theos` サイドカーコンテナで動作する。app コンテナから直接 `make` は実行できない。
+Theos ビルド環境は app コンテナに統合されている。
 
 ### ビルド
 
 ```bash
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名>
+make -C packages/tweak/<tweak名>
 ```
 
 ### クリーン
 
 ```bash
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> clean
+make -C packages/tweak/<tweak名> clean
 ```
 
 ### パッケージ (.deb 生成)
 
 ```bash
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> package
+make -C packages/tweak/<tweak名> package
 ```
 
 ### デバイスへのインストール
 
 ```bash
 # 初回のみ: SSH 公開鍵をデバイスに登録 (パスワード: alpine)
-docker compose -f .devcontainer/compose.yaml exec theos ssh-copy-id -o PubkeyAuthentication=no root@<デバイスIP>
+ssh-copy-id -o PubkeyAuthentication=no root@<デバイスIP>
 
 # 以降はパスワード不要
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> package install THEOS_DEVICE_IP=<デバイスIP>
+make -C packages/tweak/<tweak名> package install THEOS_DEVICE_IP=<デバイスIP>
 ```
 
 - Tweak 開発担当はコード変更後に必ずビルドが通ることを確認する
