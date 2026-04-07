@@ -59,6 +59,7 @@ load_dotenv()
 
 # ─── Helpers ─────────────────────────────────────────────
 
+
 def sanitize(name: str, max_len: int = 80) -> str:
     """ファイル名に使えない文字を _ に置換."""
     return re.sub(r"[^\w.\-]", "_", name)[:max_len]
@@ -98,8 +99,10 @@ def fmt_size(n: int | str) -> str:
 
 def is_text_content(ct: str) -> bool:
     """Content-Type がテキスト系か."""
-    return any(t in ct for t in ("json", "text", "xml", "html", "javascript",
-                                  "x-www-form-urlencoded"))
+    return any(
+        t in ct
+        for t in ("json", "text", "xml", "html", "javascript", "x-www-form-urlencoded")
+    )
 
 
 def pretty_json(text: str) -> str | None:
@@ -111,6 +114,7 @@ def pretty_json(text: str) -> str | None:
 
 
 # ─── Core ────────────────────────────────────────────────
+
 
 class CronetCapture:
     """Frida Python API を使った Cronet HTTP キャプチャ."""
@@ -138,21 +142,26 @@ class CronetCapture:
         self._pid: int | None = None
 
         # リクエスト追跡
-        self._pending: dict[str, dict] = {}   # reqId → request info
-        self._seq = 0                          # グローバル連番
+        self._pending: dict[str, dict] = {}  # reqId → request info
+        self._seq = 0  # グローバル連番
         self._domain_seq: dict[str, int] = {}  # domain → 連番
 
         # エラー重複抑制
         self._error_counts: dict[str, int] = {}  # url_pattern → count
 
         # MSL 平文トラッキング
-        self._msl_req_queue: dict[str, list[bytes]] = {}   # url_pattern → [body, ...]
-        self._msl_last_save: dict | None = None             # {dir, base, url}
-        self._msl_decrypt_buf: list[bytes] = []             # 復号チャンク蓄積
+        self._msl_req_queue: dict[str, list[bytes]] = {}  # url_pattern → [body, ...]
+        self._msl_last_save: dict | None = None  # {dir, base, url}
+        self._msl_decrypt_buf: list[bytes] = []  # 復号チャンク蓄積
 
         # 統計
-        self._stats = {"requests": 0, "responses": 0, "errors": 0, "bytes": 0,
-                       "msl_decrypted": 0}
+        self._stats = {
+            "requests": 0,
+            "responses": 0,
+            "errors": 0,
+            "bytes": 0,
+            "msl_decrypted": 0,
+        }
 
         # 停止イベント
         self._stop = threading.Event()
@@ -279,10 +288,12 @@ class CronetCapture:
 
         method = p.get("method", "?")
         url = p.get("url", "?")
-        ct = (p.get("headers") or {}).get("Content-Type",
-             (p.get("headers") or {}).get("content-type", ""))
-        enc = (p.get("headers") or {}).get("Content-Encoding",
-              (p.get("headers") or {}).get("content-encoding", ""))
+        ct = (p.get("headers") or {}).get(
+            "Content-Type", (p.get("headers") or {}).get("content-type", "")
+        )
+        enc = (p.get("headers") or {}).get(
+            "Content-Encoding", (p.get("headers") or {}).get("content-encoding", "")
+        )
         detail = f" [{enc}]" if enc else (f" ({ct})" if ct else "")
         print(f"  -> {method} {url}{detail}")
 
@@ -355,8 +366,10 @@ class CronetCapture:
                         body_preview = f"\n    {bp}"
                     except UnicodeDecodeError:
                         pass
-            print(f"  <- {status} {req['method']} {req['url']}"
-                  f" ({fmt_size(body_size)}){body_preview}")
+            print(
+                f"  <- {status} {req['method']} {req['url']}"
+                f" ({fmt_size(body_size)}){body_preview}"
+            )
 
     def _on_redirect(self, p: dict):
         print(f"  ~> {p.get('statusCode')} {p.get('url')} -> {p.get('newUrl')}")
@@ -414,10 +427,13 @@ class CronetCapture:
                 base = self._msl_last_save["base"]
                 self._save_msl_plaintext(save_dir, base, "resp", combined)
                 url = self._msl_last_save.get("url", "?")
-                print(f"  \U0001f513 MSL resp decrypted {url} ({fmt_size(len(combined))})")
+                print(
+                    f"  \U0001f513 MSL resp decrypted {url} ({fmt_size(len(combined))})"
+                )
 
-    def _save_msl_plaintext(self, save_dir: Path, base: str,
-                            direction: str, data: bytes):
+    def _save_msl_plaintext(
+        self, save_dir: Path, base: str, direction: str, data: bytes
+    ):
         """MSL 平文をファイルに保存. JSON なら整形して .json, それ以外は .bin."""
         try:
             text = data.decode("utf-8")
@@ -431,9 +447,18 @@ class CronetCapture:
 
     # ─── ファイル保存 ───
 
-    def _save_request(self, seq: int, req: dict, status, status_text: str,
-                      protocol: str, resp_headers: dict,
-                      body: bytes | None, body_size: int, error: str | None):
+    def _save_request(
+        self,
+        seq: int,
+        req: dict,
+        status,
+        status_text: str,
+        protocol: str,
+        resp_headers: dict,
+        body: bytes | None,
+        body_size: int,
+        error: str | None,
+    ):
         domain = req.get("domain", "unknown")
         url = req.get("url", "unknown")
         method = req.get("method", "GET")
@@ -460,7 +485,9 @@ class CronetCapture:
         lines.append(f"## Request")
         lines.append("")
         lines.append(f"```")
-        lines.append(f"{method} {parsed.path}{'?' + parsed.query if parsed.query else ''} {protocol}")
+        lines.append(
+            f"{method} {parsed.path}{'?' + parsed.query if parsed.query else ''} {protocol}"
+        )
         lines.append(f"Host: {parsed.netloc}")
         for k, v in req_headers.items():
             lines.append(f"{k}: {v}")
@@ -476,8 +503,7 @@ class CronetCapture:
                 pass
 
         if req_body_bytes:
-            ct = req_headers.get("Content-Type",
-                 req_headers.get("content-type", ""))
+            ct = req_headers.get("Content-Type", req_headers.get("content-type", ""))
             lines.append("")
             lines.append(f"### Body ({fmt_size(len(req_body_bytes))})")
             lines.append("")
@@ -500,8 +526,9 @@ class CronetCapture:
             lines.append(f"*Body not captured*")
 
         # MSL リクエスト平文
-        req_enc = req_headers.get("Content-Encoding",
-                  req_headers.get("content-encoding", ""))
+        req_enc = req_headers.get(
+            "Content-Encoding", req_headers.get("content-encoding", "")
+        )
         if "msl" in req_enc.lower():
             url_key = self._url_pattern(url)
             queue = self._msl_req_queue.get(url_key, [])
@@ -521,9 +548,7 @@ class CronetCapture:
                 except UnicodeDecodeError:
                     lines.append(f"*Binary — {fmt_size(len(msl_body))}*")
             # レスポンス decrypt の紐付け用に保存先を記録
-            self._msl_last_save = {
-                "dir": save_dir, "base": base_name, "url": url
-            }
+            self._msl_last_save = {"dir": save_dir, "base": base_name, "url": url}
 
         # ── Response セクション ──
         lines.append("")
@@ -618,14 +643,14 @@ class CronetCapture:
         if self._error_counts:
             print()
             print(f"  Error patterns:")
-            for pat, cnt in sorted(self._error_counts.items(),
-                                   key=lambda x: -x[1])[:5]:
+            for pat, cnt in sorted(self._error_counts.items(), key=lambda x: -x[1])[:5]:
                 print(f"    {cnt:>4}x  {pat}")
 
         print(f"{'=' * 60}")
 
 
 # ─── Main ────────────────────────────────────────────────
+
 
 def main():
     script = sys.argv[1] if len(sys.argv) > 1 else "hook_cronet.js"

@@ -38,7 +38,9 @@ def get_pid(host: str, bundle_id: str) -> int:
     """Get Netflix PID from frida-ps."""
     result = subprocess.run(
         ["frida-ps", "-H", host, "-a"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     for line in result.stdout.splitlines():
         if bundle_id in line:
@@ -46,9 +48,38 @@ def get_pid(host: str, bundle_id: str) -> int:
     return 0
 
 
+def kill_app(host: str, bundle_id: str) -> None:
+    """Kill running app via Frida."""
+    import frida
+
+    try:
+        device = frida.get_device_manager().add_remote_device(host)
+        pid = get_pid(host, bundle_id)
+        if pid:
+            device.kill(pid)
+            print(f"[*] Killed {bundle_id} (PID: {pid})")
+            import time
+
+            time.sleep(2)
+    except Exception as e:
+        print(f"[-] Kill failed: {e}")
+
+
+def launch_app(host: str, bundle_id: str) -> None:
+    """Launch app via Frida spawn+resume (no script injection)."""
+    import frida
+    import time
+
+    device = frida.get_device_manager().add_remote_device(host)
+    pid = device.spawn([bundle_id])
+    device.resume(pid)
+    print(f"[*] Spawned {bundle_id} (PID: {pid}), waiting for startup...")
+    time.sleep(5)
+
+
 def sanitize(name: str) -> str:
     """Sanitize filename component."""
-    return re.sub(r'[^\w.\-]', '_', name)[:80]
+    return re.sub(r"[^\w.\-]", "_", name)[:80]
 
 
 def deep_parse_json(obj):
@@ -70,10 +101,12 @@ def deep_parse_json(obj):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Netflix Frida Hook Runner")
-    parser.add_argument("--android", action="store_true",
-                        help="Target Android device (spawn mode)")
-    parser.add_argument("script", nargs="?", default=None,
-                        help="Frida script to inject")
+    parser.add_argument(
+        "--android", action="store_true", help="Target Android device (spawn mode)"
+    )
+    parser.add_argument(
+        "script", nargs="?", default=None, help="Frida script to inject"
+    )
     return parser.parse_args()
 
 
@@ -112,7 +145,10 @@ def _export_cookies_and_headers(capture_file: Path, session_dir: Path):
                 elif event in cred_map:
                     val = entry.get("value", "")
                     cookie_name = cred_map[event]
-                    if val and (cookie_name not in credentials or len(val) > len(credentials[cookie_name])):
+                    if val and (
+                        cookie_name not in credentials
+                        or len(val) > len(credentials[cookie_name])
+                    ):
                         credentials[cookie_name] = val
             except (json.JSONDecodeError, TypeError):
                 continue
@@ -143,35 +179,47 @@ def main():
     if args.android:
         host = os.getenv("ANDROID_HOST", "192.168.0.36")
         bundle_id = "com.netflix.mediaclient"
-        script = args.script or "hook_netflix_android.js"
+        script = args.script or "packages/frida/hook_netflix_android.js"
         platform = "android"
     else:
         host = os.getenv("IOS_HOST", "192.168.0.34")
         bundle_id = "com.netflix.Netflix"
-        script = args.script or "hook_netflix.js"
+        script = args.script or "packages/frida/hook_netflix.js"
         platform = "ios"
 
     if args.android:
-        # Android: spawn mode (-f)
+        # Android: spawn mode (kills existing process automatically)
         print(f"[*] Platform: Android (spawn)")
         print(f"[*] Host: {host}")
         print(f"[*] Target: {bundle_id}")
         print(f"[*] Script: {script}")
         cmd = ["frida", "-f", bundle_id, "-l", script, "-H", host]
     else:
-        # iOS: attach to running process (-p)
+        # iOS: kill → launch → attach (クリーンスタート)
+        pid = get_pid(host, bundle_id)
+        if pid:
+            print(f"[*] Netflix is running (PID: {pid}), killing...")
+            kill_app(host, bundle_id)
+
+        print(f"[*] Launching Netflix on {host}...")
+        try:
+            launch_app(host, bundle_id)
+        except Exception as e:
+            print(f"[-] Failed to launch: {e}")
+            sys.exit(1)
+
         pid = get_pid(host, bundle_id)
         if not pid:
-            print(f"Netflix is not running on {host}")
-            print("Please launch Netflix on the device first.")
+            print("[-] Netflix failed to start")
             sys.exit(1)
+
         print(f"[*] Platform: iOS (attach)")
         print(f"[*] Found Netflix (PID: {pid})")
         print(f"[*] Script: {script}")
         cmd = ["frida", "-p", str(pid), "-l", script, "-H", host]
 
     session_id = datetime.now().strftime("%Y%m%d")
-    session_dir = Path("logs") / f"{platform}_{session_id}"
+    session_dir = Path("raws") / platform / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
 
     capture_file = session_dir / "capture.jsonl"
@@ -210,14 +258,16 @@ def main():
 
     # MSL 平文キュー: msl.api の params を domain 別に蓄積し、
     # 直後の http.request に紐付ける
-    msl_plaintext_queue: dict[str, list[dict]] = {}  # domain → [{params, url, ...}, ...]
+    msl_plaintext_queue: dict[
+        str, list[dict]
+    ] = {}  # domain → [{params, url, ...}, ...]
 
     try:
         for line in proc.stdout:
             line = line.rstrip("\n")
 
             if line.startswith(LOG_PREFIX):
-                json_str = line[len(LOG_PREFIX):]
+                json_str = line[len(LOG_PREFIX) :]
                 try:
                     entry = json.loads(json_str)
                 except json.JSONDecodeError:
@@ -251,18 +301,23 @@ def main():
                     # 平文パラメータをキューに蓄積
                     # フック側のフィールド名は body または params
                     msl_body = entry.get("body") or entry.get("params")
-                    msl_plaintext_queue.setdefault(domain, []).append({
-                        "params": msl_body,
-                        "url": entry.get("url"),
-                        "headers": entry.get("headers"),
-                        "userId": entry.get("userId"),
-                        "userauthdata": entry.get("userauthdata"),
-                    })
+                    msl_plaintext_queue.setdefault(domain, []).append(
+                        {
+                            "params": msl_body,
+                            "url": entry.get("url"),
+                            "headers": entry.get("headers"),
+                            "userId": entry.get("userId"),
+                            "userauthdata": entry.get("userauthdata"),
+                        }
+                    )
                 elif event == "http.request" and domain:
                     # MSL 暗号化されたリクエストのみ平文を紐付け
                     req_headers = entry.get("headers") or {}
-                    content_enc = (req_headers.get("Content-Encoding")
-                                   or req_headers.get("content-encoding") or "")
+                    content_enc = (
+                        req_headers.get("Content-Encoding")
+                        or req_headers.get("content-encoding")
+                        or ""
+                    )
                     if "msl" in content_enc.lower():
                         queue = msl_plaintext_queue.get(domain, [])
                         if queue:
@@ -271,7 +326,11 @@ def main():
                             if msl_params:
                                 # body を復号済み MSL ペイロードに置換
                                 try:
-                                    entry["body"] = json.loads(msl_params) if isinstance(msl_params, str) else msl_params
+                                    entry["body"] = (
+                                        json.loads(msl_params)
+                                        if isinstance(msl_params, str)
+                                        else msl_params
+                                    )
                                 except (json.JSONDecodeError, TypeError):
                                     entry["body"] = msl_params
                                 entry["body_source"] = "msl_decrypted"
@@ -287,7 +346,9 @@ def main():
                     if entry_url:
                         try:
                             parsed_url = urlparse(entry_url)
-                            path_segs = [s for s in parsed_url.path.strip("/").split("/") if s]
+                            path_segs = [
+                                s for s in parsed_url.path.strip("/").split("/") if s
+                            ]
                             for seg in path_segs:
                                 save_dir = save_dir / sanitize(seg)
                         except Exception:
@@ -344,22 +405,35 @@ def main():
                         resp_json = deep_parse_json(json.loads(response_str))
                         # パース済みレスポンスを保存
                         with open(domain_dir / f"{base}.json", "w") as f:
-                            json.dump({**meta, "response": resp_json}, f, ensure_ascii=False, indent=2)
+                            json.dump(
+                                {**meta, "response": resp_json},
+                                f,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
                     except (json.JSONDecodeError, TypeError):
                         # パース失敗 — そのまま保存
                         with open(domain_dir / f"{base}.json", "w") as f:
-                            json.dump(deep_parse_json(entry), f, ensure_ascii=False, indent=2)
+                            json.dump(
+                                deep_parse_json(entry), f, ensure_ascii=False, indent=2
+                            )
                 elif has_b64:
                     # Crypto event with base64 fields — save as single JSON
                     with open(domain_dir / f"{base}.json", "w") as f:
-                        json.dump(deep_parse_json(entry), f, ensure_ascii=False, indent=2)
+                        json.dump(
+                            deep_parse_json(entry), f, ensure_ascii=False, indent=2
+                        )
                 elif body is not None:
                     # Try to parse body as JSON
                     try:
                         body_json = json.loads(body) if isinstance(body, str) else body
                         body_json = deep_parse_json(body_json)
                         # Preserve metadata (event, ts, domain, url, etc.) alongside parsed body
-                        meta = {k: v for k, v in entry.items() if k not in ("body", "params")}
+                        meta = {
+                            k: v
+                            for k, v in entry.items()
+                            if k not in ("body", "params")
+                        }
                         out = {**meta, "body": body_json}
                         with open(domain_dir / f"{base}.json", "w") as f:
                             json.dump(out, f, ensure_ascii=False, indent=2)
@@ -377,16 +451,31 @@ def main():
                 else:
                     # URL or other metadata — save as .json
                     with open(domain_dir / f"{base}.json", "w") as f:
-                        json.dump(deep_parse_json(entry), f, ensure_ascii=False, indent=2)
+                        json.dump(
+                            deep_parse_json(entry), f, ensure_ascii=False, indent=2
+                        )
 
-                # Console summary (curl-like)
+                # Console summary
                 method = entry.get("method", "")
                 url_disp = entry.get("url", "")
                 size = entry.get("data_size") or entry.get("size", "")
                 content_type = entry.get("content_type", "")
 
+                # 暗号・認証に関係ないドメインは非表示
+                _SKIP_DOMAINS = (
+                    "recaptcha.net",
+                    "fast.com",
+                    "assets.nflxext.com",
+                    "codepush.nflxext.com",
+                    "ichnaea.netflix.com",
+                    "nflxso.net",  # CDN 画像・BIF サムネイル
+                    "nflximg.net",  # CDN 画像
+                    "nflxvideo.net",  # 動画セグメント
+                )
+                if domain and any(d in domain for d in _SKIP_DOMAINS):
+                    continue
+
                 if event == "http.request":
-                    # curl風: > POST https://... (1234B, application/json)
                     ct_str = f", {content_type}" if content_type else ""
                     size_str = f" ({size}B{ct_str})" if size else ""
                     print(f"  > {method} {url_disp}{size_str}")
@@ -396,33 +485,22 @@ def main():
                 elif event == "msl.api.response":
                     resp = entry.get("response", "") or ""
                     err = entry.get("error")
-                    resp_len = len(resp)
-                    preview = (resp[:160] + "...") if resp_len > 160 else resp
                     err_str = f" ERROR: {err}" if err else ""
-                    print(f"  < MSL {url_disp} ({resp_len}B){err_str}")
-                    if preview:
-                        print(f"    {preview}")
+                    print(f"  < MSL {url_disp} ({len(resp)}B){err_str}")
                 elif event == "appboot.response":
                     resp = entry.get("response", "") or ""
-                    resp_len = len(resp)
-                    preview = (resp[:160] + "...") if resp_len > 160 else resp
                     err = entry.get("error")
                     err_str = f" ERROR: {err}" if err else ""
-                    print(f"  < APPBOOT ({resp_len}B){err_str}")
-                    if preview:
-                        print(f"    {preview}")
+                    print(f"  < APPBOOT ({len(resp)}B){err_str}")
                 elif event == "http.response":
                     status = entry.get("status", 0)
                     resp_size = entry.get("size", 0)
                     err = entry.get("error")
-                    body = entry.get("body", "") or ""
-                    preview = (body[:160] + "...") if len(body) > 160 else body
                     err_str = f" ERROR: {err}" if err else ""
                     print(f"  < {status} {url_disp} ({resp_size}B){err_str}")
-                    if preview:
-                        print(f"    {preview}")
                 elif event == "url":
-                    print(f"  * {url_disp}")
+                    # URL 作成イベントは表示しない (http.request で十分)
+                    pass
                 elif event == "cronet.request":
                     req_hdrs = entry.get("requestHeaders", {})
                     ct = req_hdrs.get("Content-Type", req_hdrs.get("content-type", ""))
@@ -430,31 +508,35 @@ def main():
                     print(f"  > {method} {url_disp}{ct_str}")
                 elif event == "cronet.complete":
                     status = entry.get("statusCode", "?")
-                    proto = entry.get("protocol", "?")
                     body_size = entry.get("bodySize", 0)
                     err = entry.get("error")
-                    req_id = entry.get("reqId", "?")
                     err_str = f" ERROR: {err}" if err else ""
-                    body_preview = ""
-                    body_text = entry.get("body", "")
-                    if body_text:
-                        bp = body_text[:160]
-                        if len(body_text) > 160:
-                            bp += "..."
-                        body_preview = f"\n    {bp}"
-                    print(f"  < {status} {proto} {method} {url_disp} ({body_size}B) [{req_id}]{err_str}{body_preview}")
+                    print(f"  < {status} {url_disp} ({body_size}B){err_str}")
                 elif event == "cronet.redirect":
                     new_url = entry.get("newUrl", "?")
                     status = entry.get("statusCode", "?")
                     print(f"  → {status} {url_disp} → {new_url}")
                 elif event.startswith("msl."):
-                    size_str = f" ({size}B)" if size else ""
-                    print(f"  [{path_key}] {event}{size_str}")
-                else:
-                    size_str = f" ({size}B)" if size else ""
-                    url_short = url_disp[:80] + "..." if len(url_disp) > 80 else url_disp
-                    detail = f" {url_short}" if url_disp else ""
-                    print(f"  [{path_key}] {event}{size_str}{detail}")
+                    # crypto イベントはサイズと鍵取得状況を表示
+                    pt = entry.get("plaintext_size", 0)
+                    ct_size = entry.get("ciphertext_size", 0)
+                    key_b64 = entry.get("key_b64")
+                    key_str = (
+                        f" key={'OK' if key_b64 else 'MISSING'}"
+                        if event
+                        in (
+                            "msl.aesCbcEncrypt",
+                            "msl.aesCbcDecrypt",
+                            "msl.aesCbcEncryptDecrypt",
+                        )
+                        else ""
+                    )
+                    if pt or ct_size:
+                        print(f"  [crypto] {event} ({ct_size}B → {pt}B){key_str}")
+                    else:
+                        size_str = f" ({size}B)" if size else ""
+                        print(f"  [crypto] {event}{size_str}{key_str}")
+                # その他は非表示
 
             else:
                 # Regular console output — skip frida banner noise
