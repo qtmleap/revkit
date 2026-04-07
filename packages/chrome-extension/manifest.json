@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Netflix MSL + EME Capture",
+  "version": "4.4.0",
+  "description": "Netflix MSL/EME capture with ALE keys, KID table, profile override (TypeScript build)",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["downloads", "storage", "cookies"],
+  "host_permissions": ["*://*.netflix.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.netflix.com/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.netflix.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ]
+}

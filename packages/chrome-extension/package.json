@@ -1,0 +1,16 @@
+{
+  "name": "netflix-msl-key-capture",
+  "version": "4.4.0",
+  "devDependencies": {
+    "bun-types": "latest",
+    "@types/chrome": "^0.0.290"
+  },
+  "scripts": {
+    "build": "bun run build.ts",
+    "watch": "bun run build.ts --watch",
+    "dev": "bun run build.ts --watch"
+  },
+  "dependencies": {
+    "zod": "3"
+  }
+}
