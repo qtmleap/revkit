@@ -85,7 +85,7 @@
         {
             "label": "tweak: build",
             "type": "shell",
-            "command": "docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/${relativeFileDirname}",
+            "command": "make -C ${relativeFileDirname}",
             "options": { "cwd": "${workspaceFolder}/packages/tweak" },
             "group": "build",
             "problemMatcher": []
@@ -93,14 +93,14 @@
         {
             "label": "tweak: clean",
             "type": "shell",
-            "command": "docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/${relativeFileDirname} clean",
+            "command": "make -C ${relativeFileDirname} clean",
             "options": { "cwd": "${workspaceFolder}/packages/tweak" },
             "problemMatcher": []
         },
         {
             "label": "tweak: package",
             "type": "shell",
-            "command": "docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/${relativeFileDirname} package",
+            "command": "make -C ${relativeFileDirname} package",
             "options": { "cwd": "${workspaceFolder}/packages/tweak" },
             "group": "build",
             "problemMatcher": []

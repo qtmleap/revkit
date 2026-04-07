@@ -34,7 +34,6 @@
         "ghcr.io/devcontainers/features/github-cli:1": {},
         "ghcr.io/jsburckhardt/devcontainer-features/uv:1": {},
         "ghcr.io/stu-bell/devcontainer-features/claude-code:0": {},
-        "ghcr.io/christophermacgown/devcontainer-features/direnv:1": {},
         "ghcr.io/devcontainers/features/node:1": {
             "version": "25.9.0"
         },
@@ -43,12 +42,6 @@
             "version": "21",
             "installMaven": false,
             "installGradle": false
-        },
-        "ghcr.io/devcontainers/features/docker-in-docker:2": {
-            "moby": false
-        },
-        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
-            "moby": false
         }
     },
     "forwardPorts": [],
