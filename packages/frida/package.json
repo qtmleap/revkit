@@ -1,0 +1,16 @@
+{
+  "name": "netflix-frida-hooks",
+  "private": true,
+  "scripts": {
+    "build": "npm run build:ios && npm run build:android",
+    "build:ios": "frida-compile src/ios/index.ts -o hook_netflix.js -c -T none",
+    "build:android": "frida-compile src/android/index.ts -o hook_netflix_android.js -c -T none",
+    "watch:ios": "frida-compile src/ios/index.ts -o hook_netflix.js -w -T none",
+    "watch:android": "frida-compile src/android/index.ts -o hook_netflix_android.js -w -T none",
+    "build:chrome": "frida-compile src/chrome/index.ts -o hook_chrome_cdm.js -c -T none",
+    "watch:chrome": "frida-compile src/chrome/index.ts -o hook_chrome_cdm.js -w -T none"
+  },
+  "devDependencies": {
+    "frida-compile": "^19.0.5"
+  }
+}
