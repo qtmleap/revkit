@@ -93,12 +93,40 @@ cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
 "remote.localPortHost": "allInterfaces"
 ```
 
+### 4. SSH config を設定
+
+`~/.ssh/config` に以下を追加して、macOS を踏み台にした ProxyJump を設定する。
+
+**エイリアスあり** (macOS ホストを再利用する場合):
+
+```sshconfig
+Host docker-host
+  HostName host.docker.internal
+  User <macOS のユーザー名>
+
+Host iPhone
+  HostName <デバイスの LAN IP>
+  User root
+  ProxyJump docker-host
+  LocalForward 27042 127.0.0.1:27042
+```
+
+**エイリアスなし** (シンプルに一つで完結):
+
+```sshconfig
+Host iPhone
+  HostName <デバイスの LAN IP>
+  User root
+  ProxyJump <macOS のユーザー名>@host.docker.internal
+  LocalForward 27042 127.0.0.1:27042
+```
+
 ### 接続経路
 
 | 用途 | 方向 | 経路 |
 |------|------|------|
 | **SSH** | コンテナ → デバイス | `ssh iPhone` (ProxyJump で macOS を経由) |
-| **Frida** | コンテナ → デバイス | SSH の LocalForward で 127.0.0.1:27042 → デバイス:27042 |
+| **Frida** | コンテナ → デバイス | `ssh -fN iPhone` でトンネル確立後、`frida -H 127.0.0.1` で接続 |
 | **mitmproxy** | デバイス → コンテナ | デバイスのプロキシを macOS の LAN IP:9080 に設定 |
 
 ## 使い方
