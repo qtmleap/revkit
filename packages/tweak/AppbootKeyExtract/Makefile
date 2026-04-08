@@ -9,7 +9,7 @@ TWEAK_NAME = AppbootKeyExtract
 
 AppbootKeyExtract_FILES = $(shell find Sources/AppbootKeyExtract -name '*.swift') $(shell find Sources/AppbootKeyExtractC -name '*.m' -o -name '*.c' -o -name '*.mm' -o -name '*.cpp')
 AppbootKeyExtract_SWIFTFLAGS = -ISources/AppbootKeyExtractC/include
-AppbootKeyExtract_CFLAGS = -fobjc-arc -ISources/AppbootKeyExtractC/include
+AppbootKeyExtract_CFLAGS = -fobjc-arc -ISources/AppbootKeyExtractC/include -Wno-unused-function
 AppbootKeyExtract_FRAMEWORKS = Foundation
 AppbootKeyExtract_LDFLAGS = -lsubstrate
 
