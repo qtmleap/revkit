@@ -107,33 +107,34 @@ graph TD
 ## 2. 鍵のライフサイクル
 
 ```mermaid
+%%{init: {'theme': 'dark'}}%%
 sequenceDiagram
-    participant B as NFWebCrypto (バイナリ)
+    participant B as NFWebCrypto
     participant C as クライアント
     participant S as Netflix サーバー
 
     Note over B: PSK, nonce はハードコード
 
-    rect rgba(100, 140, 200, 0.3)
+    rect rgba(70, 130, 200, 0.25)
     Note over C,S: Phase 1-2: 起動時 -- 未解明
     C->>S: appboot リクエスト
     S->>C: key_response_data
     Note over C: enc_key_0, sign_key_0 を取得
     end
 
-    rect rgba(200, 180, 60, 0.3)
+    rect rgba(200, 170, 50, 0.25)
     Note over C: Phase 3: KDF 鍵更新 -- 解明済み
     Note over C: KDF で enc_key_1, sign_key_1 を導出
     end
 
-    rect rgba(80, 180, 100, 0.3)
+    rect rgba(60, 170, 90, 0.25)
     Note over C,S: Phase 4: ログイン鍵配送 -- 解明済み
     C->>S: MSL リクエスト
     S->>C: key_response_data
     Note over C: enc_key_1 で復号 → enc_key_2, sign_key_2
     end
 
-    rect rgba(160, 160, 160, 0.3)
+    rect rgba(140, 140, 140, 0.2)
     Note over C,S: Phase 5: ログイン後の通信
     C->>S: MSL リクエスト
     S->>C: MSL レスポンス
