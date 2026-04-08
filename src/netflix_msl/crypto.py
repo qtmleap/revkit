@@ -253,6 +253,32 @@ class NetflixCrypto:
 
         return new_enc_key, new_sign_key
 
+    # ---- Phase 2: TFIT KDF (初期セッション鍵導出) ----
+
+    @staticmethod
+    def derive_initial_session_keys(
+        tfit_key: bytes,
+        dh_shared_secret: bytes,
+    ) -> tuple[bytes, bytes]:
+        """Phase 2 初期セッション鍵導出 (TFIT KDF).
+
+        HMAC-SHA384(TFIT_KEY_48B, 0x00 || DH_SHARED_SECRET_128B) → 48 bytes
+          enc_key  = output[0:16]   (AES-128 暗号化鍵)
+          sign_key = output[16:48]  (HMAC-SHA256 署名鍵)
+
+        Args:
+            tfit_key:         TFIT ホワイトボックス AES から導出した 48 バイト鍵
+            dh_shared_secret: DH_compute_key から得た 128 バイト生共有秘密
+
+        Returns:
+            (enc_key, sign_key) — それぞれ 16 bytes, 32 bytes
+        """
+        data = b"\x00" + dh_shared_secret
+        digest = hmac_mod.new(tfit_key, data, hashlib.sha384).digest()
+        enc_key = digest[:16]
+        sign_key = digest[16:48]
+        return enc_key, sign_key
+
     # ---- Scheme 3/5 (DH) 鍵取り込み ----
 
     def import_session_keys(self, enc_key: bytes, sign_key: bytes) -> None:
