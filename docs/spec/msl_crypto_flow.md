@@ -94,8 +94,9 @@ graph TD
 | DH 秘密鍵 | NFWebCrypto::dhKeyGen (ランタイム生成) | appboot 鍵交換 |
 | kAppBootKey (RSA-4096) | NFWebCrypto.framework にハードコード | DH パラメータの暗号化 (サーバーへ送信) |
 | kAppBootEccKey (ECDSA P-256) | NFWebCrypto.framework にハードコード | サーバーレスポンスの署名検証 |
-| MSL enc_key (AES-128) | HKDF(DH shared secret) | MSL ペイロードの AES-128-CBC 暗号化/復号 |
-| MSL hmac_key (SHA-256) | HKDF(DH shared secret) | MSL ペイロードの HMAC-SHA256 署名/検証 |
+| MSL enc_key (AES-128) | 初回: DH 共有秘密から導出 (方法未解明)。更新: HMAC-SHA256 KDF (解明済み) | MSL ペイロードの AES-128-CBC 暗号化/復号 |
+| MSL hmac_key (SHA-256) | 初回: 同上。更新: HMAC-SHA256 KDF (解明済み) | MSL ペイロードの HMAC-SHA256 署名/検証 |
+| PSK (16B) | DH 共有秘密から導出? TFIT チェーン出力? (未解明) | KDF 鍵更新のマスター鍵 |
 | AES self-test key | 固定値 `000102...0f` | OpenSSL KAT (Known Answer Test) |
 
 ## 現状の制限
@@ -107,8 +108,25 @@ graph TD
 | Frida Interceptor (attach) | ✓ 動作 | 起動後 attach のため appboot に間に合わない |
 | Frida enumerateSymbols | ✓ 動作 | アドレス取得可能だが attach タイミングの問題 |
 
+## 解決済み: KDF 鍵更新アルゴリズム (2026-04-08)
+
+Tweak `AppbootKeyExtract` v39 の HMAC ストリーミングフックにより、
+MSL セッション鍵更新の KDF が完全に解明された。
+
+**アルゴリズム**: カスタム HMAC-SHA256 チェーン (標準 HKDF ではない)
+
+```
+new_enc_key  = HMAC-SHA256(HMAC-SHA256(PSK, enc_key), nonce)[:16]
+new_sign_key = HMAC-SHA256(HMAC-SHA256(PSK, sign_key), nonce)
+```
+
+詳細: [msl_kdf_analysis.md](msl_kdf_analysis.md)
+Python 実装: `src/netflix_msl/crypto.py` → `NetflixCrypto.kdf_renew()`
+
 ## 次のステップ
 
-1. **Tweak で EVP_CipherInit_ex の IV パラメータを監視** — MSL ペイロード暗号化時に IV が設定されるはずだが、EVP 内部のステートを追跡できていない可能性
-2. **Frida + Tweak 併用** — Tweak で appboot 時の鍵導出をキャプチャし、Frida で後続の MSL ペイロードをキャプチャ
-3. **ElleKit の代わりに fishhook / substrate を直接使う** — MSHookFunction が失敗する原因を調査
+1. **PSK の由来特定** — `027617984f6227539a630b897c017d69` がどこから来るかを解明
+   - Keychain クリア + 新規セッションでキャプチャ
+   - TFIT ホワイトボックスチェーンとの関連調査
+2. **初期鍵導出 (DH → 初回セッション鍵)** — `DH_compute_key`/`dhDerive` + 直後の HMAC チェーンをキャプチャ
+3. **SSL Pinning バイパス** — Netflix ログインに必要。Frida ベースの手法を検討

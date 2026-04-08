@@ -46,6 +46,10 @@ CLIENT_VERSION = "6.0011.474.011"
 KEY_ID_CONSTANT = "A1F6F6308F6F7F875C5E9562EF792CAE"
 RSA_KEYPAIR_ID = "rsaKeypairId"
 
+# iOS MSL Scheme 5 KDF 定数 (NFWebCrypto.framework @ 0x1ac8f5)
+IOS_KDF_PSK = bytes.fromhex("027617984f6227539a630b897c017d69")
+IOS_KDF_NONCE = bytes.fromhex("809f82a7addf548d3ea9dd067ff9bb91")
+
 # ============================================================================
 # User-Agent
 # ============================================================================
