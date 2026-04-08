@@ -215,7 +215,45 @@ class NetflixCrypto:
 
         return bool(self.encryption_key and self.sign_key)
 
-    # ---- Scheme 3 (DH/ECDH) 鍵取り込み ----
+    # ---- Scheme 5 (DH) KDF: セッション鍵更新 ----
+
+    @staticmethod
+    def kdf_renew(
+        psk: bytes,
+        enc_key: bytes,
+        sign_key: bytes,
+        nonce: bytes,
+    ) -> tuple[bytes, bytes]:
+        """Netflix MSL Scheme 5 セッション鍵更新 KDF.
+
+        HMAC-SHA256 チェーンによるカスタム鍵導出。
+        標準 HKDF ではなく、NFWebCrypto.framework の
+        HMAC_Init_ex/Update/Final を直接使用する独自実装。
+
+        Args:
+            psk:      Pre-Shared Key (16 bytes) — DH 共有秘密から導出
+            enc_key:  現在の AES-128-CBC 暗号化鍵 (16 bytes)
+            sign_key: 現在の HMAC-SHA256 署名鍵 (32 bytes)
+            nonce:    サーバー nonce (16 bytes) — key_response_data.9
+
+        Returns:
+            (new_enc_key, new_sign_key)
+        """
+        # Step 1-2: セッションバインド
+        session_check = hmac_mod.new(psk, enc_key + sign_key, hashlib.sha256).digest()
+        _session_bind = hmac_mod.new(session_check, nonce, hashlib.sha256).digest()
+
+        # Step 3-4: 新しい暗号化鍵
+        enc_temp = hmac_mod.new(psk, enc_key, hashlib.sha256).digest()
+        new_enc_key = hmac_mod.new(enc_temp, nonce, hashlib.sha256).digest()[:16]
+
+        # Step 5-6: 新しい署名鍵
+        sign_temp = hmac_mod.new(psk, sign_key, hashlib.sha256).digest()
+        new_sign_key = hmac_mod.new(sign_temp, nonce, hashlib.sha256).digest()
+
+        return new_enc_key, new_sign_key
+
+    # ---- Scheme 3/5 (DH) 鍵取り込み ----
 
     def import_session_keys(self, enc_key: bytes, sign_key: bytes) -> None:
         """Frida でキャプチャした鍵素材を直接インポートする (Scheme 3 用).
