@@ -72,10 +72,150 @@ static volatile int g_inHook = 0;
 
 typedef struct dh_st         DH;
 typedef struct bignum_st     BIGNUM;
+
+// BN helper function pointers (resolved in constructor, used by multiple hooks)
+static int (*fn_BN_num_bits_int)(const BIGNUM *) = NULL;
+static int (*fn_BN_bn2bin)(const BIGNUM *, unsigned char *) = NULL;
 typedef struct evp_md_st     EVP_MD;
 typedef struct hmac_ctx_st   HMAC_CTX;
 typedef struct engine_st     ENGINE;
 typedef struct aes_key_st    AES_KEY;
+
+// ---------------------------------------------------------------------------
+// HOOK 0a: DH_generate_key  (DH key pair generation)
+//
+// Signature: int DH_generate_key(DH *dh)
+// Returns:   1 on success
+//
+// After call, use DH_get0_key to extract pub_key and priv_key BIGNUMs.
+// ---------------------------------------------------------------------------
+
+static int (*orig_DH_generate_key)(DH *dh);
+static void (*fn_DH_get0_key)(const DH *, const BIGNUM **, const BIGNUM **) = NULL;
+
+static int hook_DH_generate_key(DH *dh) {
+    int ret = orig_DH_generate_key(dh);
+
+    if (ret == 1 && !g_inHook && fn_DH_get0_key && fn_BN_num_bits_int && fn_BN_bn2bin) {
+        g_inHook = 1;
+
+        const BIGNUM *pub = NULL, *priv = NULL;
+        fn_DH_get0_key(dh, &pub, &priv);
+
+        if (pub) {
+            int pubBits = fn_BN_num_bits_int(pub);
+            int pubBytes = (pubBits + 7) / 8;
+            if (pubBytes > 0 && pubBytes <= 1024) {
+                uint8_t *buf = (uint8_t *)malloc((size_t)pubBytes);
+                if (buf) {
+                    fn_BN_bn2bin(pub, buf);
+                    file_log(g_log_dhDerive,
+                             [NSString stringWithFormat:@"[dhGenerate] client_pub_key(%dB)=%@",
+                              pubBytes, hexEncode(buf, (size_t)pubBytes)]);
+                    free(buf);
+                }
+            }
+        }
+
+        if (priv) {
+            int privBits = fn_BN_num_bits_int(priv);
+            int privBytes = (privBits + 7) / 8;
+            if (privBytes > 0 && privBytes <= 1024) {
+                uint8_t *buf = (uint8_t *)malloc((size_t)privBytes);
+                if (buf) {
+                    fn_BN_bn2bin(priv, buf);
+                    file_log(g_log_dhDerive,
+                             [NSString stringWithFormat:@"[dhGenerate] client_priv_key(%dB)=%@",
+                              privBytes, hexEncode(buf, (size_t)privBytes)]);
+                    free(buf);
+                }
+            }
+        }
+
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 0b: RSA_public_encrypt
+//
+// Signature: int RSA_public_encrypt(int flen, const unsigned char *from,
+//                                   unsigned char *to, RSA *rsa, int padding)
+// Returns:   size of encrypted data (e.g., 512 for RSA-4096), -1 on error
+//
+// Captures: input plaintext, output ciphertext, padding mode
+// ---------------------------------------------------------------------------
+
+typedef struct rsa_st RSA;
+
+static int (*orig_RSA_public_encrypt)(int flen, const unsigned char *from,
+                                       unsigned char *to, RSA *rsa, int padding);
+
+static int hook_RSA_public_encrypt(int flen, const unsigned char *from,
+                                    unsigned char *to, RSA *rsa, int padding) {
+    int ret = orig_RSA_public_encrypt(flen, from, to, rsa, padding);
+
+    if (!g_inHook) {
+        g_inHook = 1;
+
+        NSString *inHex = hexEncodeShort(from, (size_t)flen);
+        NSString *outHex = (ret > 0) ? hexEncodeShort(to, (size_t)ret) : @"(failed)";
+
+        // padding: 1=PKCS1, 3=NONE, 4=OAEP, 5=PSS
+        NSString *padStr;
+        switch (padding) {
+            case 1: padStr = @"PKCS1_v1_5"; break;
+            case 3: padStr = @"NONE"; break;
+            case 4: padStr = @"OAEP"; break;
+            default: padStr = [NSString stringWithFormat:@"%d", padding]; break;
+        }
+
+        file_log(g_log_general,
+                 [NSString stringWithFormat:
+                  @"[RSA_public_encrypt] padding=%@ in(%dB)=%@ out(%dB)=%@",
+                  padStr, flen, inHex, ret, outHex]);
+
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 0c: EVP_PKEY_encrypt (higher-level RSA/EC encryption)
+//
+// Signature: int EVP_PKEY_encrypt(EVP_PKEY_CTX *ctx,
+//                                 unsigned char *out, size_t *outlen,
+//                                 const unsigned char *in, size_t inlen)
+// Returns:   1 on success
+// ---------------------------------------------------------------------------
+
+typedef struct evp_pkey_ctx_st EVP_PKEY_CTX;
+
+static int (*orig_EVP_PKEY_encrypt)(EVP_PKEY_CTX *ctx,
+                                     unsigned char *out, size_t *outlen,
+                                     const unsigned char *in, size_t inlen);
+
+static int hook_EVP_PKEY_encrypt(EVP_PKEY_CTX *ctx,
+                                  unsigned char *out, size_t *outlen,
+                                  const unsigned char *in, size_t inlen) {
+    int ret = orig_EVP_PKEY_encrypt(ctx, out, outlen, in, inlen);
+
+    if (!g_inHook && ret == 1 && out && outlen && *outlen > 0) {
+        g_inHook = 1;
+
+        NSString *inHex = hexEncodeShort(in, inlen);
+        NSString *outHex = hexEncodeShort(out, *outlen);
+
+        file_log(g_log_general,
+                 [NSString stringWithFormat:
+                  @"[EVP_PKEY_encrypt] in(%zuB)=%@ out(%zuB)=%@",
+                  inlen, inHex, *outlen, outHex]);
+
+        g_inHook = 0;
+    }
+    return ret;
+}
 
 // ---------------------------------------------------------------------------
 // HOOK 1: DH_compute_key  (primary Phase 2 entry point)
@@ -89,9 +229,6 @@ typedef struct aes_key_st    AES_KEY;
 // ---------------------------------------------------------------------------
 
 static int (*orig_DH_compute_key)(unsigned char *key, const BIGNUM *pub_key, DH *dh);
-
-static int (*fn_BN_num_bits_int)(const BIGNUM *) = NULL;
-static int (*fn_BN_bn2bin)(const BIGNUM *, unsigned char *) = NULL;
 
 static int hook_DH_compute_key(unsigned char *key, const BIGNUM *pub_key, DH *dh) {
     int ret = orig_DH_compute_key(key, pub_key, dh);
@@ -447,11 +584,40 @@ __attribute__((constructor)) static void init(void) {
     // Resolve BN helper functions (needed for peer public key capture)
     fn_BN_num_bits_int = (int (*)(const BIGNUM *))dlsym(nfwc, "BN_num_bits");
     fn_BN_bn2bin = (int (*)(const BIGNUM *, unsigned char *))dlsym(nfwc, "BN_bn2bin");
+    fn_DH_get0_key = (void (*)(const DH *, const BIGNUM **, const BIGNUM **))dlsym(nfwc, "DH_get0_key");
     if (fn_BN_num_bits_int) file_log(g_log_general, @"[+] BN_num_bits resolved");
     if (fn_BN_bn2bin)       file_log(g_log_general, @"[+] BN_bn2bin resolved");
+    if (fn_DH_get0_key)     file_log(g_log_general, @"[+] DH_get0_key resolved");
+
+    // ---- HOOK 0a: DH_generate_key ----
+    void *sym = dlsym(nfwc, "DH_generate_key");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_DH_generate_key, (void **)&orig_DH_generate_key);
+        file_log(g_log_general, @"[+] DH_generate_key hooked");
+    } else {
+        file_log(g_log_general, @"[-] DH_generate_key not found");
+    }
+
+    // ---- HOOK 0b: RSA_public_encrypt ----
+    sym = dlsym(nfwc, "RSA_public_encrypt");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_RSA_public_encrypt, (void **)&orig_RSA_public_encrypt);
+        file_log(g_log_general, @"[+] RSA_public_encrypt hooked");
+    } else {
+        file_log(g_log_general, @"[-] RSA_public_encrypt not found");
+    }
+
+    // ---- HOOK 0c: EVP_PKEY_encrypt ----
+    sym = dlsym(nfwc, "EVP_PKEY_encrypt");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_EVP_PKEY_encrypt, (void **)&orig_EVP_PKEY_encrypt);
+        file_log(g_log_general, @"[+] EVP_PKEY_encrypt hooked");
+    } else {
+        file_log(g_log_general, @"[-] EVP_PKEY_encrypt not found");
+    }
 
     // ---- HOOK 1: DH_compute_key (dhDerive) ----
-    void *sym = dlsym(nfwc, "DH_compute_key");
+    sym = dlsym(nfwc, "DH_compute_key");
     if (sym) {
         MSHookFunction(sym, (void *)hook_DH_compute_key, (void **)&orig_DH_compute_key);
         file_log(g_log_general, @"[+] DH_compute_key (dhDerive) hooked");
