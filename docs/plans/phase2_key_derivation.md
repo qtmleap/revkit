@@ -17,27 +17,27 @@ Analyze how the DH shared secret (128 bytes) is transformed into initial session
 ## Tasks
 
 ### Frida Engineer
-- [ ] 1. Enumerate all crypto exports in NFWebCrypto.framework (`*HMAC*`, `*SHA*`, `*KDF*`, `*derive*`, `*PRF*`, `*expand*`, `*extract*`, `*HKDF*`) and hook them all during a fresh appboot session
-- [ ] 2. Hook `AES_set_decrypt_key` / `EVP_DecryptInit` to capture the exact bytes used as decryption key for key 33.6, then trace backwards to identify which function produced those bytes
-- [ ] 3. Hook CommonCrypto (`CC_SHA256`, `CCHmac`, `CCKeyDerivationPBKDF`) in system libraries to catch KDF calls outside bundled OpenSSL
-- [ ] 4. Test MSL spec standard KDF: `HMAC-SHA384(pre_master_secret, "MASTER_SECRET" || PSK || nonce)` against live captured values
-- [ ] 5. Identify and hook C++ orchestrator method in NFWebCrypto containing `appboot`, `session`, `derive`, or `master` in symbol name
+- [x] 1. Enumerate all crypto exports in NFWebCrypto.framework — HKDF not found, DH_KDF_X9_42 found
+- [x] 2. Hook `AES_set_decrypt_key` — captured exact key bytes, traced to HMAC-SHA384 output
+- [x] 3. Hook CommonCrypto — confirmed not used for KDF
+- [x] 4. Test MSL spec standard KDF — no match (algorithm is HMAC-SHA384 with TFIT key)
+- [x] 5. Identified HMAC-SHA384 as the orchestrating function via HMAC_Init_ex hook
 
 ### Tweak Engineer
-- [ ] 6. Audit existing Tweak hook coverage — identify gaps in intermediate KDF state capture
-- [ ] 7. Hook `dhDerive` export in NFWebCrypto.framework to capture raw 128-byte DH shared secret
-- [ ] 8. Hook `HKDF` export in NFWebCrypto.framework with full parameter capture (IKM, salt, info, output length, output bytes)
-- [ ] 9. Hook `aesCbc` with full context (key, IV, plaintext/ciphertext, direction) to identify wrapping step
-- [ ] 10. Hook TFIT whitebox AES internals for MGK extraction — bridge between DH shared secret and wrapping key
-- [ ] 11. Hook `IosMslClient -_handleAppbootResponse:error:timeoutMS:` to extract enc_key_0/sign_key_0 from parsed response object
+- [x] 6. Audit existing Tweak hook coverage — gaps in HMAC key capture identified
+- [x] 7. Hook `DH_compute_key` — captured 128-byte shared secret
+- [x] 8. Hook `HKDF` — confirmed not present in NFWebCrypto.framework
+- [x] 9. Hook `AES_set_*_key` — captured all AES key material
+- [ ] 10. Hook TFIT whitebox AES internals for MGK extraction — 48B TFIT key origin still opaque
+- [x] 11. Hook HMAC — captured 48B TFIT key via HMAC_Init_ex
 
 ### Python Engineer
-- [ ] 12. Audit existing tools in `tools/` to catalogue exactly which KDF variants have been ruled out
-- [ ] 13. Build `tools/find_phase2_hmac_chain.py`: test Phase 3 HMAC chain pattern applied to DH shared secret with varying truncation/ordering
-- [ ] 14. Build `tools/find_phase2_kdf_variants.py`: test non-HKDF derivations (NIST SP 800-56C, ANSI X9.63, PBKDF2, raw SHA-256/SHA-1, PRF constructions)
-- [ ] 15. Build `tools/decrypt_key_response.py`: attempt AES-CBC decryption of 96-byte key 33.6 blob under candidate keys, verify HMAC
-- [ ] 16. Implement `derive_initial_session_keys()` in `src/netflix_msl/crypto.py` once algorithm is discovered
-- [ ] 17. Write regression test `tools/verify_phase2_kdf.py` with known test vectors
+- [x] 12. Audit existing tools — 100+ HKDF variants ruled out
+- [x] 13. Build `tools/find_phase2_hmac_chain.py` — Phase 3 pattern tested, no match
+- [x] 14. Build `tools/find_phase2_kdf_variants.py` — all standard KDFs ruled out
+- [x] 15. Build `tools/decrypt_key_response.py` — tested 66 candidate keys
+- [x] 16. Implement `derive_initial_session_keys()` in `src/netflix_msl/crypto.py` — DONE
+- [x] 17. Write regression test `tools/verify_phase2_kdf.py` — PASS
 
 ## Execution Order
 
