@@ -221,6 +221,64 @@ static unsigned char *hook_HMAC(const void *evp_md, const void *key, int key_len
 }
 
 // ---------------------------------------------------------------------------
+// Hook: HKDF_extract / HKDF_Expand
+// ---------------------------------------------------------------------------
+
+static int (*orig_HKDF_extract)(uint8_t *out_key, size_t *out_len,
+                                const void *digest,
+                                const uint8_t *secret, size_t secret_len,
+                                const uint8_t *salt, size_t salt_len);
+static int hook_HKDF_extract(uint8_t *out_key, size_t *out_len,
+                              const void *digest,
+                              const uint8_t *secret, size_t secret_len,
+                              const uint8_t *salt, size_t salt_len) {
+    int ret = orig_HKDF_extract(out_key, out_len, digest, secret, secret_len, salt, salt_len);
+    if (ret == 1 && out_key && out_len) {
+        NSString *saltHex = (salt && salt_len > 0) ? hexEncode(salt, (int)salt_len) : @"(null)";
+        NSString *ikmHex  = (secret && secret_len > 0) ? hexEncode(secret, (int)secret_len) : @"(null)";
+        NSString *prkHex  = hexEncode(out_key, (int)*out_len);
+
+        file_log([NSString stringWithFormat:@"[HKDF_extract] salt(%zu)=%@ ikm(%zu)=%@ prk(%zu)=%@",
+                  salt_len, saltHex, secret_len, ikmHex, *out_len, prkHex]);
+        NFXKEY_LOG("[HKDF_extract] salt(%zu)=%@ ikm(%zu)=%@ prk(%zu)=%@",
+                   salt_len, saltHex, secret_len, ikmHex, *out_len, prkHex);
+
+        g_keys[@"hkdf_salt"] = saltHex;
+        g_keys[@"hkdf_ikm"]  = ikmHex;
+        g_keys[@"hkdf_prk"]  = prkHex;
+        saveKeysToFile();
+    }
+    return ret;
+}
+
+static int (*orig_HKDF_expand)(uint8_t *out_key, size_t out_len,
+                               const void *digest,
+                               const uint8_t *prk, size_t prk_len,
+                               const uint8_t *info, size_t info_len);
+static int hook_HKDF_expand(uint8_t *out_key, size_t out_len,
+                             const void *digest,
+                             const uint8_t *prk, size_t prk_len,
+                             const uint8_t *info, size_t info_len) {
+    int ret = orig_HKDF_expand(out_key, out_len, digest, prk, prk_len, info, info_len);
+    if (ret == 1 && out_key && out_len > 0) {
+        NSString *prkHex  = (prk && prk_len > 0) ? hexEncode(prk, (int)prk_len) : @"(null)";
+        NSString *infoHex = (info && info_len > 0) ? hexEncode(info, (int)info_len) : @"(null)";
+        NSString *okmHex  = hexEncode(out_key, (int)out_len);
+
+        file_log([NSString stringWithFormat:@"[HKDF_expand] prk(%zu)=%@ info(%zu)=%@ okm(%zu)=%@",
+                  prk_len, prkHex, info_len, infoHex, out_len, okmHex]);
+        NFXKEY_LOG("[HKDF_expand] prk(%zu)=%@ info(%zu)=%@ okm(%zu)=%@",
+                   prk_len, prkHex, info_len, infoHex, out_len, okmHex);
+
+        g_keys[@"hkdf_info"]    = infoHex;
+        g_keys[@"hkdf_okm"]     = okmHex;
+        g_keys[@"hkdf_okm_len"] = @(out_len);
+        saveKeysToFile();
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
 // Hook: IosMslClient.setDidAppboot:
 // ---------------------------------------------------------------------------
 
@@ -332,6 +390,41 @@ __attribute__((constructor)) static void init(void) {
             MSHookFunction(hmacFn, (void *)hook_HMAC, (void **)&orig_HMAC);
             file_log(@"[+] HMAC hooked");
             NFXKEY_LOG("  [+] HMAC hooked");
+        }
+
+        // HKDF hooks — try lowercase first (BoringSSL), then PascalCase
+        void *hkdfExtract = dlsym(nfwc, "HKDF_extract");
+        if (!hkdfExtract) {
+            hkdfExtract = dlsym(nfwc, "HKDF_Extract");
+            if (hkdfExtract) {
+                file_log(@"[!] HKDF_extract not found, using HKDF_Extract");
+            }
+        }
+
+        void *hkdfExpand = dlsym(nfwc, "HKDF_expand");
+        if (!hkdfExpand) {
+            hkdfExpand = dlsym(nfwc, "HKDF_Expand");
+            if (hkdfExpand) {
+                file_log(@"[!] HKDF_expand not found, using HKDF_Expand");
+            }
+        }
+
+        if (hkdfExtract) {
+            MSHookFunction(hkdfExtract, (void *)hook_HKDF_extract, (void **)&orig_HKDF_extract);
+            file_log(@"[+] HKDF_extract hooked");
+            NFXKEY_LOG("  [+] HKDF_extract hooked");
+        } else {
+            file_log(@"[-] HKDF_extract not found (tried HKDF_extract / HKDF_Extract)");
+            NFXKEY_LOG("  [-] HKDF_extract not found");
+        }
+
+        if (hkdfExpand) {
+            MSHookFunction(hkdfExpand, (void *)hook_HKDF_expand, (void **)&orig_HKDF_expand);
+            file_log(@"[+] HKDF_expand hooked");
+            NFXKEY_LOG("  [+] HKDF_expand hooked");
+        } else {
+            file_log(@"[-] HKDF_expand not found (tried HKDF_expand / HKDF_Expand)");
+            NFXKEY_LOG("  [-] HKDF_expand not found");
         }
     } else {
         file_log(@"[-] NFWebCrypto not loaded");

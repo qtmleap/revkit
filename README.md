@@ -168,8 +168,6 @@ analyzeHeadless /tmp/project name -import <binary>
 | コマンド | 説明 |
 |---------|------|
 | `/compose` | Agent Teams のリーダーとしてチームを編成し、計画策定→承認→実行のワークフローを開始する |
-| `/frida` | Frida を使った Android の Cookie + ESN キャプチャ手順をガイド |
-| `/proxyman` | Proxyman による MSL トラフィックキャプチャのセットアップ・解析 |
 
 ### エージェント
 
