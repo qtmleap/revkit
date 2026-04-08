@@ -266,10 +266,24 @@ device capability descriptor と推定される。
 |------|------|
 | CBOR トップレベル構造 | ✓ 完全に解析済み |
 | key 33 sub-key マッピング | ✓ 解析済み |
-| スキーム ID 3 の正体 | 推定: DH/ECDH ベース (NFWebCrypto::dhKeyGen/dhDerive を使用) |
+| スキーム ID 3 の正体 | ✓ **DH 1024-bit ベース** (NFWebCrypto の DH_generate_key/DH_compute_key を使用) |
 | key 33.6 (464B) のフォーマット | 未解明 (DH 公開値またはカスタム暗号文の変形) |
 | key 33.6 レスポンス (96B) の構造 | 推定: `CT(64B)+HMAC(32B)` = ラップされたセッション鍵 |
-| セッション鍵の導出 | **不可** (DH 共有秘密なしに復号不能) |
+| セッション鍵の導出 | ✓ **Tweak で取得済み** (NFWebCrypto OpenSSL 関数フック) |
+| MSL ペイロードの復号 | ✓ **End-to-end 復号成功** |
 
-**ボトルネック**: `kAppBootKey` RSA-4096 秘密鍵 (サーバーサイド保有) または Frida による
-`NFWebCrypto::dhDerive` / `HKDF` 出力のキャプチャが必要。
+### 9.1 解決済み: セッション鍵の取得 (2026-04-08)
+
+`msl_cbor_key_exchange_analysis.md` §6 で「導出不可能」としていたセッション鍵は、
+Tweak `AppbootKeyExtract` による NFWebCrypto.framework のフックで取得に成功した。
+
+取得方法: キャプチャデータからの逆算ではなく、ランタイムフックで鍵素材を直接キャプチャ:
+
+| フック対象 | 取得した鍵 | サイズ |
+|-----------|----------|--------|
+| `DH_generate_key` | DH 公開鍵・秘密鍵 | 各 128 bytes |
+| `DH_compute_key` | DH 共有秘密 | 128 bytes |
+| `AES_set_encrypt_key(bits=128)` | セッション暗号化鍵 (enc_key) | 16 bytes |
+| `HMAC(key_len=32)` | セッション署名鍵 (hmac_key) | 32 bytes |
+
+詳細: [ios_msl_decrypt_pipeline.md](ios_msl_decrypt_pipeline.md)

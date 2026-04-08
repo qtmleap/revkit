@@ -48,6 +48,18 @@ MSL レスポンスは複数の JSON オブジェクトが連結された形式:
 | (gzip magic `1f8b`) | gzip | StreamFab, Android |
 | `LZW` | LZW | Chrome |
 
+### 1.5 iOS CBOR MSL (JSON 形式との差異)
+
+iOS は JSON ではなく **CBOR** (数値キー) でエンコードする。
+詳細: [ios_msl_decrypt_pipeline.md](ios_msl_decrypt_pipeline.md)
+
+主な差異:
+
+- **IV**: JSON MSL では `"iv"` フィールドに格納。CBOR MSL では **ciphertext の先頭 16 bytes に prepend** (IV フィールドは空)
+- **復号後 (リクエスト)**: CBOR bstr(9) ヘッダー + gzip 圧縮 JSON (Base64 経由なし)
+- **復号後 (レスポンス)**: `00 00` ヘッダー + raw deflate 圧縮 JSON
+- **鍵交換**: JSON MSL は `ASYMMETRIC_WRAPPED (JWK_RSA)`、CBOR MSL は **Scheme 3 (DH ベース)**
+
 ---
 
 ## 2. マニフェストレスポンス構造

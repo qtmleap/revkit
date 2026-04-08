@@ -22,6 +22,7 @@ from pathlib import Path
 # src/ をモジュール検索パスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from netflix_msl.cbor_decoder import CborMslDecoder
 from netflix_msl.crypto import NetflixCrypto
 
 
@@ -45,151 +46,45 @@ def build_crypto(args: argparse.Namespace) -> NetflixCrypto:
     return crypto
 
 
-def verify_hmac(crypto: NetflixCrypto, data: bytes, expected_hmac: bytes) -> bool:
-    """HMAC-SHA256 を検証する.
-
-    data に対して sign() を実行し expected_hmac と比較する。
-    sign() は文字列 → bytes.decode() 前提なので、ここでは低レベルで計算する。
-    """
-    import hashlib
-    import hmac as hmac_mod
-
-    if crypto.sign_key is None:
-        return False
-
-    computed = hmac_mod.new(crypto.sign_key, data, hashlib.sha256).digest()
-    return hmac_mod.compare_digest(computed, expected_hmac)
-
-
-def try_cbor_decode(data: bytes) -> dict | None:
-    """CBOR デコードを試みる. 失敗時は None を返す."""
-    try:
-        import cbor2
-
-        return cbor2.loads(data)
-    except Exception:
-        return None
-
-
-def try_decrypt_payload(crypto: NetflixCrypto, data: bytes) -> bytes | None:
-    """MSL ペイロード (IV + CT 形式) または生 AES-CBC の復号を試みる.
-
-    まず CBOR デコードして iv / ciphertext フィールドを取得。
-    失敗した場合は先頭 16 bytes を IV として残りを CT とみなして復号する。
-    """
-    import base64
-
-    cbor_obj = try_cbor_decode(data)
-    if cbor_obj is not None and isinstance(cbor_obj, dict):
-        # CBOR ペイロード: {"iv": bytes, "ciphertext": bytes} または Base64 文字列
-        iv_raw = cbor_obj.get("iv") or cbor_obj.get(b"iv")
-        ct_raw = cbor_obj.get("ciphertext") or cbor_obj.get(b"ciphertext")
-
-        if iv_raw is None or ct_raw is None:
-            return None
-
-        # Base64 文字列の場合はデコード
-        if isinstance(iv_raw, str):
-            iv_raw = base64.b64decode(iv_raw)
-        if isinstance(ct_raw, str):
-            ct_raw = base64.b64decode(ct_raw)
-
-        return crypto.decrypt(bytes(ct_raw), bytes(iv_raw))
-
-    # 生バイナリ: 先頭 16 bytes = IV、残り = CT
-    if len(data) < 32 or len(data) % 16 != 0:
-        return None
-
-    iv = data[:16]
-    ct = data[16:]
-    return crypto.decrypt(ct, iv)
-
-
-def decrypt_file(
-    crypto: NetflixCrypto,
-    path: Path,
-) -> tuple[bytes | None, str | None]:
-    """ファイルを復号して (plaintext, error_message) を返す.
-
-    復号に成功した場合 error_message は None。
-    """
-    raw = path.read_bytes()
-
-    # --- HMAC 検証 (末尾 32 bytes を HMAC として扱う) ---
-    hmac_warning: str | None = None
-    if len(raw) > 32:
-        body = raw[:-32]
-        tail = raw[-32:]
-        if not verify_hmac(crypto, body, tail):
-            hmac_warning = f"[W] {path.name}: HMAC-SHA256 検証失敗 (処理は続行)"
-
-    plaintext = try_decrypt_payload(crypto, raw)
-    if plaintext is None:
-        return None, f"[E] {path.name}: 復号失敗 (フォーマット不一致または鍵不一致)"
-
-    return plaintext, hmac_warning
-
-
-def format_output(plaintext: bytes, fmt: str) -> str:
-    """復号結果を指定フォーマットに変換する."""
-    if fmt == "hex":
-        return plaintext.hex()
-
-    if fmt == "raw":
-        # バイナリをそのまま返す (呼び出し側で bytes.write を使う)
-        return plaintext.decode("latin-1")
-
-    # json (default)
-    # JSON として解釈を試みる
-    try:
-        obj = json.loads(plaintext)
-        return json.dumps(obj, ensure_ascii=False, indent=2)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        pass
-
-    # CBOR として解釈を試みる
-    cbor_obj = try_cbor_decode(plaintext)
-    if cbor_obj is not None:
-        try:
-            return json.dumps(cbor_obj, ensure_ascii=False, indent=2, default=repr)
-        except Exception:
-            pass
-
-    # どちらでもない場合は hex で返す
-    return plaintext.hex()
-
-
 def process_file(
-    crypto: NetflixCrypto,
+    decoder: CborMslDecoder,
     path: Path,
     fmt: str,
     output_path: Path | None,
 ) -> bool:
     """単一ファイルを処理する. 成功時 True を返す."""
-    plaintext, error = decrypt_file(crypto, path)
+    raw = path.read_bytes()
 
-    if error and plaintext is None:
-        print(error, file=sys.stderr)
+    try:
+        result = decoder.process_message(raw)
+    except Exception as e:
+        print(f"[E] {path.name}: {e}", file=sys.stderr)
         return False
 
-    if error:
-        # HMAC 警告
-        print(error, file=sys.stderr)
+    payloads = result.get("payloads", [])
+    if not payloads:
+        print(f"[W] {path.name}: ペイロードなし", file=sys.stderr)
+        return False
 
-    assert plaintext is not None
-    result = format_output(plaintext, fmt)
+    # 復号されたペイロードを出力
+    output_data: dict | list = {
+        "file": path.name,
+        "signature_valid": result.get("signature_valid"),
+        "payloads": payloads,
+    }
+
+    if fmt == "hex":
+        output_str = json.dumps(output_data, ensure_ascii=False, default=repr)
+    elif fmt == "raw":
+        output_str = json.dumps(output_data, ensure_ascii=False, indent=2, default=repr)
+    else:
+        output_str = json.dumps(output_data, ensure_ascii=False, indent=2, default=repr)
 
     if output_path is not None:
-        if fmt == "raw":
-            output_path.write_bytes(plaintext)
-        else:
-            output_path.write_text(result, encoding="utf-8")
+        output_path.write_text(output_str, encoding="utf-8")
         print(f"[+] {path.name} -> {output_path}", file=sys.stderr)
     else:
-        if fmt == "raw":
-            sys.stdout.buffer.write(plaintext)
-        else:
-            print(result)
+        print(output_str)
 
     return True
 
@@ -259,6 +154,7 @@ def main() -> None:
         parser.error("--keys か --enc-key と --sign-key の両方を指定してください")
 
     crypto = build_crypto(args)
+    decoder = CborMslDecoder(crypto)
 
     # 入力ファイルの収集
     if args.input is not None:
@@ -289,7 +185,7 @@ def main() -> None:
             # 複数ファイル処理: ファイル名をヘッダとして表示
             print(f"\n=== {path.name} ===", file=sys.stderr)
 
-        ok = process_file(crypto, path, args.format, output_path)
+        ok = process_file(decoder, path, args.format, output_path)
         if ok:
             success += 1
         else:

@@ -9,5 +9,6 @@
 | [spec/02_android.md](spec/02_android.md) | Android (Widevine L1/L3、APPBOOT ESN、Cronet) |
 | [spec/03_ios.md](spec/03_ios.md) | iOS (FairPlay SPC/CKC、二重 ESN、HLS) |
 | [spec/04_streamfab.md](spec/04_streamfab.md) | StreamFab/CEF (コーデック探索、licensedmanifest 復号、偽装パラメータ) |
+| [spec/ios_msl_decrypt_pipeline.md](spec/ios_msl_decrypt_pipeline.md) | iOS MSL 復号パイプライン (鍵取得方法、CBOR フォーマット、復号手順) |
 
 実トラフィックキャプチャ (Proxyman + StreamFab アプリログ, 2026-04-05) を復号・解析して得た実測値に基づく。
