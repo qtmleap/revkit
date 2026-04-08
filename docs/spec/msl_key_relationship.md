@@ -92,9 +92,11 @@ graph TD
     style DH_SHARED fill:#f1c40f,stroke:#d4ac0f,color:#000
 
     %% オレンジ: 由来不明
-    style KEY48 fill:#fa0,stroke:#a60,color:#fff
     style BOOT_KEY fill:#fa0,stroke:#a60,color:#fff
     style KEY336_REQ fill:#fa0,stroke:#a60,color:#fff
+
+    %% 緑: 解明済み (48B鍵は計算可能)
+    style KEY48 fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### 凡例
@@ -103,7 +105,8 @@ graph TD
 |----|------|
 | 赤 | バイナリ埋め込み |
 | 青 | サーバーレスポンス由来 |
-| 黄 | 計算可能 |
+| 黄 | 計算可能 (入力があれば) |
+| 緑 | 解明済み (全入力が既知で計算可能) |
 | オレンジ | 由来不明 |
 | 点線 (-.->)  | 関与が推定されるが未実証 |
 
@@ -264,7 +267,7 @@ sign_key_2 の復号:
 |------|--------|----------|------|------|
 | PSK | 128-bit | バイナリ | KDF マスター鍵 | 確定 |
 | nonce | 128-bit | バイナリ | KDF 入力 | 確定 |
-| 48B 鍵 | 384-bit | 不明 | Phase 2 HMAC-SHA384 の鍵 | 由来不明 |
+| 48B 鍵 | 384-bit | SHA384(session_bind[:16]) | Phase 2 HMAC-SHA384 の鍵 | **計算可能** |
 | enc_key_0 | 128-bit | Phase 2 KDF 出力 | AES-128-CBC 暗号化 (起動時) | 計算可能 (48B 鍵があれば) |
 | sign_key_0 | 256-bit | Phase 2 KDF 出力 | HMAC-SHA256 署名 (起動時) | 計算可能 (48B 鍵があれば) |
 | enc_key_1 | 128-bit | KDF 出力 | 暗号化 + ログイン鍵配送の復号鍵 | 計算可能 |
@@ -294,22 +297,16 @@ MSL メッセージには2種類の HMAC 署名が付与される:
 
 ```mermaid
 graph TD
-    Q1["48B 鍵の生成メカニズム"]
     Q2["bootstrap_key の導出元"]
     Q3["key 33.6 の構成方法"]
-
-    Q1 --> H1["AES-256 ホワイトボックスチェーンの出力?"]
-    Q1 --> H2["入力は乱数? デバイス固有値?"]
-    Q1 --> H3["現状: Tweak の HMAC_Init_ex フックで取得可能"]
 
     Q2 --> H4["仮説A: ホワイトボックスチェーン出力"]
     Q2 --> H5["仮説B: FairPlay / デバイストークン由来"]
 
     Q3 --> H6["RSA 暗号化は未使用 (実証済み)"]
-    Q3 --> H7["繰り返しパターンあり → テーブル展開形式?"]
-    Q3 --> H8["サイズ: 144B or 352B (DH 公開鍵 128B から拡張)"]
+    Q3 --> H7["XOR(nonce) エンコード解明済み、平文内 TFIT 変換が未解明"]
+    Q3 --> H8["サイズ: 144B or 352B (DH 公開鍵 128B から TFIT 拡張)"]
 
-    style Q1 fill:#fa0,stroke:#a60,color:#fff
     style Q2 fill:#fa0,stroke:#a60,color:#fff
     style Q3 fill:#fa0,stroke:#a60,color:#fff
 ```
@@ -317,6 +314,7 @@ graph TD
 ### 解決済みの疑問
 
 - ~~enc_key_0 / sign_key_0 の由来~~ → HMAC-SHA384(48B鍵, 0x00 || DH共有秘密) で導出 (Phase 2 で確認)
+- ~~48B HMAC 鍵の由来~~ → **SHA384(session_bind[:16])** で導出。session_bind は Phase 3 KDF の中間値
 - ~~HKDF で導出?~~ → NFWebCrypto に HKDF エクスポートなし。HMAC-SHA384 を使用
 - ~~kAppBootKey で DH 公開鍵を RSA 暗号化?~~ → RSA_public_encrypt / EVP_PKEY_encrypt ともに未呼び出し
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
