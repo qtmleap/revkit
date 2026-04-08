@@ -1,7 +1,7 @@
 # Netflix iOS MSL 鍵の関係図
 
 作成日: 2026-04-08
-更新日: 2026-04-08 (ログイン時の鍵遷移解析結果を反映)
+更新日: 2026-04-09 (Phase 2 KDF 解明: HMAC-SHA384 + 48B 鍵)
 
 ---
 
@@ -29,12 +29,12 @@ graph TD
         ECC_BOOT -->|署名検証| DH_RESP
     end
 
-    subgraph Phase2["Phase 2: 初期セッション鍵導出 -- 未解明"]
-        DH_RESP --> KEY336["key 33.6 暗号文 768-bit"]
-        DH_RESP --> NONCE_SRV["key 33.9 サーバー nonce"]
-        KEY336 -->|復号 鍵不明| INIT_KEYS["初期セッション鍵"]
-        INIT_KEYS --> ENC0["enc_key_0 128-bit"]
-        INIT_KEYS --> SIGN0["sign_key_0 256-bit"]
+    subgraph Phase2["Phase 2: 初期セッション鍵導出 -- 解明済み"]
+        DH_GEN -->|DH_compute_key| DH_SHARED["DH 共有秘密 1024-bit"]
+        KEY48["48B 鍵 384-bit"] -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
+        DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
+        PHASE2_KDF --> ENC0["enc_key_0 128-bit"]
+        PHASE2_KDF --> SIGN0["sign_key_0 256-bit"]
     end
 
     subgraph Phase3["Phase 3: KDF 鍵更新 -- 解明済み"]
@@ -75,21 +75,22 @@ graph TD
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style SERVER2 fill:#3498db,stroke:#2980b9,color:#fff
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
-    style KEY336 fill:#3498db,stroke:#2980b9,color:#fff
-    style NONCE_SRV fill:#3498db,stroke:#2980b9,color:#fff
-    style ENC0 fill:#3498db,stroke:#2980b9,color:#fff
-    style SIGN0 fill:#3498db,stroke:#2980b9,color:#fff
     style KRD fill:#3498db,stroke:#2980b9,color:#fff
     style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
     style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
 
-    %% 黄: 計算可能
+    %% 黄: 計算可能 (48B 鍵が判明すれば)
     style KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
+    style PHASE2_KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
+    style ENC0 fill:#f1c40f,stroke:#d4ac0f,color:#000
+    style SIGN0 fill:#f1c40f,stroke:#d4ac0f,color:#000
     style ENC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
     style SIGN1 fill:#f1c40f,stroke:#d4ac0f,color:#000
     style DECRYPT fill:#f1c40f,stroke:#d4ac0f,color:#000
+    style DH_SHARED fill:#f1c40f,stroke:#d4ac0f,color:#000
 
     %% オレンジ: 由来不明
+    style KEY48 fill:#fa0,stroke:#a60,color:#fff
     style BOOT_KEY fill:#fa0,stroke:#a60,color:#fff
 ```
 
@@ -116,10 +117,13 @@ sequenceDiagram
     Note over B: PSK, nonce はハードコード
 
     rect rgba(70, 130, 200, 0.25)
-    Note over C,S: Phase 1-2: 起動時 -- 未解明
-    C->>S: appboot リクエスト
-    S->>C: key_response_data
-    Note over C: enc_key_0, sign_key_0 を取得
+    Note over C,S: Phase 1-2: 起動時 -- 解明済み
+    C->>S: appboot リクエスト (DH 公開鍵含む)
+    S->>C: appboot レスポンス (サーバー DH 公開鍵含む)
+    Note over C: DH_compute_key → 共有秘密 1024-bit
+    Note over B: 48B 鍵 (由来不明) を生成
+    Note over C: HMAC-SHA384(48B鍵, 0x00 || 共有秘密)
+    Note over C: → enc_key_0 (128-bit), sign_key_0 (256-bit)
     end
 
     rect rgba(200, 170, 50, 0.25)
@@ -256,8 +260,9 @@ sign_key_2 の復号:
 |------|--------|----------|------|------|
 | PSK | 128-bit | バイナリ | KDF マスター鍵 | 確定 |
 | nonce | 128-bit | バイナリ | KDF 入力 | 確定 |
-| enc_key_0 | 128-bit | 不明 | AES-128-CBC 暗号化 (起動時) | 由来不明 |
-| sign_key_0 | 256-bit | 不明 | HMAC-SHA256 署名 (起動時) | 由来不明 |
+| 48B 鍵 | 384-bit | 不明 | Phase 2 HMAC-SHA384 の鍵 | 由来不明 |
+| enc_key_0 | 128-bit | Phase 2 KDF 出力 | AES-128-CBC 暗号化 (起動時) | 計算可能 (48B 鍵があれば) |
+| sign_key_0 | 256-bit | Phase 2 KDF 出力 | HMAC-SHA256 署名 (起動時) | 計算可能 (48B 鍵があれば) |
 | enc_key_1 | 128-bit | KDF 出力 | 暗号化 + ログイン鍵配送の復号鍵 | 計算可能 |
 | sign_key_1 | 256-bit | KDF 出力 | 署名 (ログイン前) | 計算可能 |
 | enc_key_2 | 128-bit | サーバー配送 | 暗号化 (ログイン後) | enc_key_1 で復号可能 |
@@ -285,14 +290,15 @@ MSL メッセージには2種類の HMAC 署名が付与される:
 
 ```mermaid
 graph TD
-    Q1["enc_key_0 / sign_key_0 の由来"]
+    Q1["48B 鍵の生成メカニズム"]
     Q2["bootstrap_key の導出元"]
 
-    Q1 --> H1["仮説A: DH 共有秘密で復号"]
-    Q1 --> H2["仮説B: TFIT チェーン出力で復号"]
+    Q1 --> H1["AES-256 ホワイトボックスチェーンの出力?"]
+    Q1 --> H2["入力は乱数? デバイス固有値?"]
+    Q1 --> H3["現状: Tweak の HMAC_Init_ex フックで取得可能"]
 
-    Q2 --> H3["仮説A: TFIT ホワイトボックスチェーン出力"]
-    Q2 --> H4["仮説B: FairPlay / デバイストークン由来"]
+    Q2 --> H4["仮説A: ホワイトボックスチェーン出力"]
+    Q2 --> H5["仮説B: FairPlay / デバイストークン由来"]
 
     style Q1 fill:#fa0,stroke:#a60,color:#fff
     style Q2 fill:#fa0,stroke:#a60,color:#fff
@@ -300,6 +306,8 @@ graph TD
 
 ### 解決済みの疑問
 
+- ~~enc_key_0 / sign_key_0 の由来~~ → HMAC-SHA384(48B鍵, 0x00 || DH共有秘密) で導出 (Phase 2 で確認)
+- ~~HKDF で導出?~~ → NFWebCrypto に HKDF エクスポートなし。HMAC-SHA384 を使用
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
 - ~~PSK 2箇所目直前の 256-bit データ~~ → 調査優先度低 (鍵フローに影響なし)
 
