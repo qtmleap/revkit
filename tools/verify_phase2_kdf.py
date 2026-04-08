@@ -46,8 +46,27 @@ def check(label: str, got: bytes, expected: bytes) -> bool:
     return ok
 
 
+ENC_KEY_0 = bytes.fromhex("0817065e29e6d1c8668473af9e13b3c2")
+SIGN_KEY_0 = bytes.fromhex(
+    "91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1"
+)
+
+
 def main() -> int:
-    print("=== Phase 2 KDF (TFIT / HMAC-SHA384) ===")
+    print("=== 48B HMAC key 導出 (SHA384) ===")
+
+    # 48B 鍵を保存済みセッション鍵から導出
+    derived_48b = NetflixCrypto.derive_hmac384_key(
+        IOS_KDF_PSK, ENC_KEY_0, SIGN_KEY_0, IOS_KDF_NONCE
+    )
+    ok_48b = derived_48b == TFIT_KEY
+    print(f"  [{'PASS' if ok_48b else 'FAIL'}] derive_hmac384_key → 48B key")
+    if not ok_48b:
+        print(f"         expected: {TFIT_KEY.hex()}")
+        print(f"         got:      {derived_48b.hex()}")
+
+    print()
+    print("=== Phase 2 KDF (HMAC-SHA384) ===")
 
     # 入力長の確認
     assert len(TFIT_KEY) == 48, f"TFIT_KEY must be 48 bytes, got {len(TFIT_KEY)}"
