@@ -1,96 +1,97 @@
 ---
 name: compose
-description: Agent Teams のリーダーとしてチームを編成し、計画策定→承認→実行のワークフローを開始する
+description: Assemble an Agent Team as leader and run the plan → approve → execute workflow
 user_invocable: true
 ---
 
-# /compose — Agent Teams ワークフロー
+# /compose — Agent Teams Workflow
 
-あなたはこのプロジェクトの **リーダーエージェント** です。以下のワークフローを厳密に実行してください。
+You are the **leader agent** for this project. Follow this workflow strictly.
 
-## Phase 1: ヒアリング
+## Phase 1: Hearing
 
-ユーザーに **何を達成したいか** を質問してください。簡潔に、1-2 文で目標を聞いてください。
-ユーザーが既にメッセージでタスクを指定している場合はそれを使ってください。
+Ask the user **what they want to achieve**. Keep it brief — 1-2 sentences.
+If the user already specified a task in their message, use that directly.
 
-## Phase 2: プランニング
+## Phase 2: Planning
 
-ユーザーの目標を受けたら:
+Once you have the user's goal:
 
-1. 利用可能なエージェントを確認 (`.claude/agents/` 配下):
-   - **tweak-engineer**: iOS Tweak (Orion/Theos, ElleKit C フック)
-   - **frida-engineer**: Frida フックスクリプト、ランタイム解析
-   - **mitmproxy-engineer**: mitmproxy アドオン、トラフィックキャプチャ
-   - **python-engineer**: MSL クライアント、デコーダー、データ処理
-   - **log-monitor**: Frida/mitmproxy/Tweak のログ監視、MSL 復号状況レポート
+1. Check available agents (under `.claude/agents/`):
+   - **tweak-engineer**: iOS Tweak development (Orion/Theos, ElleKit C hooks)
+   - **frida-engineer**: Frida hook scripts, runtime analysis
+   - **mitmproxy-engineer**: mitmproxy addons, traffic capture
+   - **python-engineer**: MSL client, decoders, data processing
+   - **log-monitor**: Frida/mitmproxy/Tweak log monitoring, MSL decryption status reports
 
-2. 各エージェントに **Plan モード** でサブタスク提案をさせる:
-   - Agent ツールで各エージェントを起動し、「この目標に対してあなたが担当すべきサブタスクを箇条書きで提案してください（コードは書かないで）」と依頼
-   - 並列で起動して効率化
+2. Have each relevant agent propose subtasks in **Plan mode**:
+   - Launch agents via the Agent tool: "Propose the subtasks you should own for this goal as a bullet list (do not write code)"
+   - Launch in parallel for efficiency
 
-3. 各エージェントの提案を統合し、`docs/plans/` にプランドキュメントを保存:
+3. Consolidate proposals and save a plan document to `docs/plans/`:
 
 ```markdown
-# 作業計画書: [タイトル]
-日時: [ISO 8601]
+# Work Plan: [Title]
+Date: [ISO 8601]
 
-## 目標
-[ユーザーの目標]
+## Goal
+[User's goal]
 
-## タスク一覧
+## Tasks
 
-### [エージェント名] 担当
-- [ ] サブタスク 1
-- [ ] サブタスク 2
+### [Agent Name]
+- [ ] Subtask 1
+- [ ] Subtask 2
 
-### [エージェント名] 担当
-- [ ] サブタスク 1
+### [Agent Name]
+- [ ] Subtask 1
 
-## 実行順序
-1. 並列: [タスク群]
-2. 依存: [タスク群]
+## Execution Order
+1. Parallel: [task group]
+2. Sequential: [task group]
 
-## 成果物
-- [ファイルパス]: [説明]
+## Deliverables
+- [file path]: [description]
 
-## リスク・注意点
-- [既知の問題]
+## Risks / Notes
+- [known issues]
 ```
 
-## Phase 3: 承認
+## Phase 3: Approval
 
-プランドキュメントの内容をユーザーに提示し、以下を確認:
-- 「この方針で進めてよいですか？」
-- 修正が必要な箇所があれば反映
+Present the plan to the user and confirm:
+- "Shall I proceed with this plan?"
+- Incorporate any requested changes
 
-**ユーザーの承認なしに Phase 4 に進んではいけません。**
+**Do NOT proceed to Phase 4 without explicit user approval.**
 
-## Phase 4: 実行
+## Phase 4: Execution
 
-承認後:
+After approval:
 
-1. TodoWrite でタスクリストを作成
-2. 各エージェントを Agent ツールで起動（可能な限り並列）
-   - 各エージェントには具体的なファイルパス、変更内容、制約を明示
-3. Tweak ビルドは theos サイドカーコンテナで実行:
+1. Create a task list with TodoWrite
+2. Launch agents via the Agent tool (in parallel where possible)
+   - Provide each agent with specific file paths, changes, and constraints
+3. Tweak builds run in the theos sidecar container:
    ```bash
-   docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> clean
-   docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> package install THEOS_DEVICE_IP=192.168.0.49
+   docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak> clean
+   docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak> package install THEOS_DEVICE_IP=192.168.0.49
    ```
-4. iOS デバイスのログ確認は iproxy 経由 (`ssh -p 2222 root@host.docker.internal`)
-   接続できない場合はユーザーにホスト Mac で `iproxy 2222 22` の実行を依頼する
-5. 各エージェントの結果をレビュー
+4. Check iOS device logs via iproxy (`ssh -p 2222 root@host.docker.internal`)
+   If unreachable, ask the user to run `iproxy 2222 22` on the host Mac
+5. Review each agent's results
 
-## Phase 5: レポート
+## Phase 5: Report
 
-全タスク完了後:
-1. プランドキュメントのチェックボックスを更新
-2. 関連する spec ドキュメントを更新
-3. 成果と残課題をユーザーに報告
+After all tasks are complete:
+1. Update checkboxes in the plan document
+2. Update related spec documents
+3. Report results and remaining issues to the user
 
-## 制約
+## Constraints
 
-- 不明な点を推測で説明しない
-- 変更前に影響範囲を全て確認する
-- コード規約: Python は `uv run ruff format`、commitlint 形式
-- ドキュメントは `docs/` に出力
+- Do not guess or speculate — say "unknown" when unsure
+- Verify the full blast radius before making changes
+- Code style: Python uses `uv run ruff format`, commit messages follow commitlint
+- Documentation goes in `docs/`
+- **Language**: All inter-agent communication (prompts and responses) MUST be in English. Only when the leader replies to the user, match the user's language
