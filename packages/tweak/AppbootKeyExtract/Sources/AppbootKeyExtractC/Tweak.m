@@ -456,37 +456,8 @@ static void (*orig_AES_cbc_encrypt)(const unsigned char *in, unsigned char *out,
                                     const AES_KEY *key, unsigned char *ivec, int enc);
 static void hook_AES_cbc_encrypt(const unsigned char *in, unsigned char *out, size_t length,
                                   const AES_KEY *key, unsigned char *ivec, int enc) {
-    // Capture IV before it's modified by AES-CBC
-    uint8_t ivCopy[16];
-    if (ivec) memcpy(ivCopy, ivec, 16);
-
+    // Step 1: pure passthrough — no logging at all
     orig_AES_cbc_encrypt(in, out, length, key, ivec, enc);
-
-    if (g_inHook) return;
-    // ENC mode: skip large operations (bulk TLS data)
-    // DEC mode: only log small ops (<=128 bytes) to capture server response decryption
-    if (enc && length > 512) return;
-    if (!enc && length > 128) return;
-    g_inHook = 1;
-
-    NSString *direction = enc ? @"ENC" : @"DEC";
-    NSString *ivHex = ivec ? hexEncode(ivCopy, 16) : @"(null)";
-
-    // DEC mode: log all bytes to capture full decrypted result
-    int logLen = enc ? (int)(length < 48 ? length : 48) : (int)length;
-    NSString *inHex = in ? hexEncode(in, logLen) : @"(null)";
-    NSString *outHex = out ? hexEncode(out, logLen) : @"(null)";
-
-    file_log([NSString stringWithFormat:
-              @"[AES_cbc_encrypt] dir=%@ len=%zu iv=%@ in[0:%d]=%@ out[0:%d]=%@",
-              direction, length, ivHex, logLen, inHex, logLen, outHex]);
-
-    // For DEC mode: flag if decrypted output starts with PSK-size patterns
-    if (!enc && length <= 128 && out) {
-        file_log([NSString stringWithFormat:@"[AES_cbc_encrypt] DEC full_out(%zu)=%@",
-                  length, hexEncode(out, (int)length)]);
-    }
-    g_inHook = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,128 +803,39 @@ __attribute__((constructor)) static void init(void) {
             file_log(@"[-] SHA256 not found in NFWebCrypto");
         }
 
-        // DH hooks
+        // === ALL HOOKS DISABLED FOR BISECT ===
+        // Uncomment one group at a time to find which causes RSA error
+
+        // --- Group 1: DH hooks --- ENABLED
         void *dhGenKey = dlsym(nfwc, "DH_generate_key");
         void *dhCompKey = dlsym(nfwc, "DH_compute_key");
+        if (dhGenKey) { MSHookFunction(dhGenKey, (void *)hook_DH_generate_key, (void **)&orig_DH_generate_key); file_log(@"[+] DH_generate_key hooked"); }
+        if (dhCompKey) { MSHookFunction(dhCompKey, (void *)hook_DH_compute_key, (void **)&orig_DH_compute_key); file_log(@"[+] DH_compute_key hooked"); }
 
-        if (dhGenKey) {
-            MSHookFunction(dhGenKey, (void *)hook_DH_generate_key, (void **)&orig_DH_generate_key);
-            file_log(@"[+] DH_generate_key hooked");
-            NFXKEY_LOG("  [+] DH_generate_key hooked");
-        }
-
-        if (dhCompKey) {
-            MSHookFunction(dhCompKey, (void *)hook_DH_compute_key, (void **)&orig_DH_compute_key);
-            file_log(@"[+] DH_compute_key hooked");
-            NFXKEY_LOG("  [+] DH_compute_key hooked");
-        }
-
-        // AES hooks
+        // --- Group 2: AES key setup hooks --- ENABLED
         void *aesEncKey = dlsym(nfwc, "AES_set_encrypt_key");
         void *aesDecKey = dlsym(nfwc, "AES_set_decrypt_key");
+        if (aesEncKey) { MSHookFunction(aesEncKey, (void *)hook_AES_set_encrypt_key, (void **)&orig_AES_set_encrypt_key); file_log(@"[+] AES_set_encrypt_key hooked"); }
+        if (aesDecKey) { MSHookFunction(aesDecKey, (void *)hook_AES_set_decrypt_key, (void **)&orig_AES_set_decrypt_key); file_log(@"[+] AES_set_decrypt_key hooked"); }
+
+        // --- Group 3: HMAC (one-shot) hook --- ENABLED
         void *hmacFn = dlsym(nfwc, "HMAC");
+        if (hmacFn) { MSHookFunction(hmacFn, (void *)hook_HMAC, (void **)&orig_HMAC); file_log(@"[+] HMAC hooked"); }
 
-        if (aesEncKey) {
-            MSHookFunction(aesEncKey, (void *)hook_AES_set_encrypt_key, (void **)&orig_AES_set_encrypt_key);
-            file_log(@"[+] AES_set_encrypt_key hooked");
-            NFXKEY_LOG("  [+] AES_set_encrypt_key hooked");
-        }
-
-        if (aesDecKey) {
-            MSHookFunction(aesDecKey, (void *)hook_AES_set_decrypt_key, (void **)&orig_AES_set_decrypt_key);
-            file_log(@"[+] AES_set_decrypt_key hooked");
-            NFXKEY_LOG("  [+] AES_set_decrypt_key hooked");
-        }
-
-        if (hmacFn) {
-            MSHookFunction(hmacFn, (void *)hook_HMAC, (void **)&orig_HMAC);
-            file_log(@"[+] HMAC hooked");
-            NFXKEY_LOG("  [+] HMAC hooked");
-        }
-
-        // HKDF hooks — try lowercase first (BoringSSL), then PascalCase
-        void *hkdfExtract = dlsym(nfwc, "HKDF_extract");
-        if (!hkdfExtract) {
-            hkdfExtract = dlsym(nfwc, "HKDF_Extract");
-            if (hkdfExtract) {
-                file_log(@"[!] HKDF_extract not found, using HKDF_Extract");
-            }
-        }
-
-        void *hkdfExpand = dlsym(nfwc, "HKDF_expand");
-        if (!hkdfExpand) {
-            hkdfExpand = dlsym(nfwc, "HKDF_Expand");
-            if (hkdfExpand) {
-                file_log(@"[!] HKDF_expand not found, using HKDF_Expand");
-            }
-        }
-
-        if (hkdfExtract) {
-            MSHookFunction(hkdfExtract, (void *)hook_HKDF_extract, (void **)&orig_HKDF_extract);
-            file_log(@"[+] HKDF_extract hooked");
-            NFXKEY_LOG("  [+] HKDF_extract hooked");
-        } else {
-            file_log(@"[-] HKDF_extract not found (tried HKDF_extract / HKDF_Extract)");
-            NFXKEY_LOG("  [-] HKDF_extract not found");
-        }
-
-        if (hkdfExpand) {
-            MSHookFunction(hkdfExpand, (void *)hook_HKDF_expand, (void **)&orig_HKDF_expand);
-            file_log(@"[+] HKDF_expand hooked");
-            NFXKEY_LOG("  [+] HKDF_expand hooked");
-        } else {
-            file_log(@"[-] HKDF_expand not found (tried HKDF_expand / HKDF_Expand)");
-            NFXKEY_LOG("  [-] HKDF_expand not found");
-        }
-
-        // Streaming HMAC hooks
+        // --- Group 4: Streaming HMAC hooks --- ENABLED
         void *hmacInitEx = dlsym(nfwc, "HMAC_Init_ex");
         void *hmacUpdate = dlsym(nfwc, "HMAC_Update");
         void *hmacFinal  = dlsym(nfwc, "HMAC_Final");
+        if (hmacInitEx) { MSHookFunction(hmacInitEx, (void *)hook_HMAC_Init_ex, (void **)&orig_HMAC_Init_ex); file_log(@"[+] HMAC_Init_ex hooked"); }
+        if (hmacUpdate) { MSHookFunction(hmacUpdate, (void *)hook_HMAC_Update, (void **)&orig_HMAC_Update); file_log(@"[+] HMAC_Update hooked"); }
+        if (hmacFinal) { MSHookFunction(hmacFinal, (void *)hook_HMAC_Final, (void **)&orig_HMAC_Final); file_log(@"[+] HMAC_Final hooked"); }
 
-        if (hmacInitEx) {
-            MSHookFunction(hmacInitEx, (void *)hook_HMAC_Init_ex, (void **)&orig_HMAC_Init_ex);
-            file_log(@"[+] HMAC_Init_ex hooked");
-            NFXKEY_LOG("  [+] HMAC_Init_ex hooked");
-        } else {
-            file_log(@"[-] HMAC_Init_ex not found");
-            NFXKEY_LOG("  [-] HMAC_Init_ex not found");
-        }
+        // --- Group 5: AES-CBC hook --- DISABLED (MSHookFunction breaks AES_cbc_encrypt trampoline)
+        // void *aesCbcFn = dlsym(nfwc, "AES_cbc_encrypt");
+        // if (aesCbcFn) { MSHookFunction(aesCbcFn, (void *)hook_AES_cbc_encrypt, (void **)&orig_AES_cbc_encrypt); file_log(@"[+] AES_cbc_encrypt hooked"); }
+        file_log(@"[i] AES_cbc_encrypt hook disabled (trampoline issue)");
 
-        if (hmacUpdate) {
-            MSHookFunction(hmacUpdate, (void *)hook_HMAC_Update, (void **)&orig_HMAC_Update);
-            file_log(@"[+] HMAC_Update hooked");
-            NFXKEY_LOG("  [+] HMAC_Update hooked");
-        } else {
-            file_log(@"[-] HMAC_Update not found");
-            NFXKEY_LOG("  [-] HMAC_Update not found");
-        }
-
-        if (hmacFinal) {
-            MSHookFunction(hmacFinal, (void *)hook_HMAC_Final, (void **)&orig_HMAC_Final);
-            file_log(@"[+] HMAC_Final hooked");
-            NFXKEY_LOG("  [+] HMAC_Final hooked");
-        } else {
-            file_log(@"[-] HMAC_Final not found");
-            NFXKEY_LOG("  [-] HMAC_Final not found");
-        }
-
-        // AES-CBC hook
-        void *aesCbcFn = dlsym(nfwc, "AES_cbc_encrypt");
-
-        if (aesCbcFn) {
-            MSHookFunction(aesCbcFn, (void *)hook_AES_cbc_encrypt, (void **)&orig_AES_cbc_encrypt);
-            file_log(@"[+] AES_cbc_encrypt hooked");
-            NFXKEY_LOG("  [+] AES_cbc_encrypt hooked");
-        } else {
-            file_log(@"[-] AES_cbc_encrypt not found");
-            NFXKEY_LOG("  [-] AES_cbc_encrypt not found");
-        }
-
-        // EVP hooks disabled — they cause "RSA public key not found" error
-        // NFWebCrypto's OpenSSL is NOT used for MSL payload decrypt
-        // (EVP_CipherInit only fires ENC, EVP_Decrypt* never fires)
-        file_log(@"[i] EVP hooks disabled (not used for MSL decrypt)");
+        file_log(@"[i] All hooks disabled for bisect");
     } else {
         file_log(@"[-] NFWebCrypto not loaded");
         NFXKEY_LOG("  [-] NFWebCrypto not loaded");
