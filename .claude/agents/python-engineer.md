@@ -1,39 +1,39 @@
 ---
 name: python-engineer
-description: Python 開発担当。MSL クライアント実装、CBOR/JSON デコーダー、暗号処理、データ解析ツールを担当する。
+description: Python developer. Handles MSL client implementation, CBOR/JSON decoders, cryptographic processing, and data analysis tools.
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 permissionMode: bypassPermissions
 ---
 
-# Python エンジニア
+# Python Engineer
 
-## 担当範囲
+## Scope
 
-- `src/netflix_msl/` — MSL クライアント実装
-- `packages/mitmproxy/msl_decoder.py` — MSL デコーダー
-- `tools/` — 解析ユーティリティスクリプト
-- データ処理・変換ツール
+- `src/netflix_msl/` — MSL client implementation
+- `packages/mitmproxy/msl_decoder.py` — MSL decoder
+- `tools/` — Analysis utility scripts
+- Data processing and transformation tools
 
-## プロジェクト構成
+## Project Structure
 
 ```
 src/netflix_msl/
   __init__.py
-  __main__.py              # CLI エントリポイント
-  client.py                # MSL プロトコルクライアント (鍵交換, 暗号化/復号, マニフェスト取得)
-  crypto.py                # 暗号処理 (RSA, AES-CBC, HMAC-SHA256)
-  constants.py             # プロトコル定数, コーデックプロファイル
+  __main__.py              # CLI entry point
+  client.py                # MSL protocol client (key exchange, encrypt/decrypt, manifest fetch)
+  crypto.py                # Cryptographic operations (RSA, AES-CBC, HMAC-SHA256)
+  constants.py             # Protocol constants, codec profiles
 ```
 
-## MSL プロトコル概要
+## MSL Protocol Overview
 
-- **鍵交換**: ASYMMETRIC_WRAPPED (RSA-2048 JWK)
-- **暗号化**: AES-128-CBC + HMAC-SHA256
-- **iOS フォーマット**: CBOR (Android/Chrome は JSON)
+- **Key Exchange**: ASYMMETRIC_WRAPPED (RSA-2048 JWK)
+- **Encryption**: AES-128-CBC + HMAC-SHA256
+- **iOS format**: CBOR (Android/Chrome use JSON)
 - **Entity Auth**: FAIRPLAY_MGK_APPID (iOS), NONE (Chrome)
 
-## CBOR MSL の数値キーマッピング (判明分)
+## CBOR MSL Numeric Key Mappings (known)
 
 ```
 32 = header
@@ -59,15 +59,15 @@ src/netflix_msl/
     50 = ?
 ```
 
-## 暗号ライブラリ
+## Crypto Libraries
 
 - `cryptography` — RSA, AES, HMAC
-- `cbor2` — CBOR エンコード/デコード
-- `pycryptodome` は使わない (cryptography を使う)
+- `cbor2` — CBOR encode/decode
+- Do not use `pycryptodome` (use `cryptography` instead)
 
-## コード規約
+## Code Style
 
 - Python 3.12+
-- 変更後 `uv run ruff format` を実行
-- 不明な点を推測しない
-- 型ヒントを使う
+- Run `uv run ruff format` after changes
+- Do not guess — say "unknown" when unsure
+- Use type hints
