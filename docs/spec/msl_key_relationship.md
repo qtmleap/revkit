@@ -32,7 +32,9 @@ graph TD
         DH_RESP -->|サーバー DH 公開鍵| DH_COMPUTE["DH_compute_key"]
         DH_GEN -->|クライアント DH 秘密鍵| DH_COMPUTE
         DH_COMPUTE --> DH_SHARED["DH 共有秘密 1024-bit"]
-        KEY48["48B 鍵 384-bit"] -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
+        KDF -->|session_bind 上位16B| SHA384_OP["SHA384"]
+        SHA384_OP --> KEY48["48B 鍵 384-bit"]
+        KEY48 -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
         DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
         PHASE2_KDF --> ENC0["enc_key_0 128-bit"]
         PHASE2_KDF --> SIGN0["sign_key_0 256-bit"]
