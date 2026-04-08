@@ -147,6 +147,41 @@ v39 ログから観測された暗号化/署名パターン:
 全メッセージが同じ enc_key / sign_key で暗号化・署名されている。
 鍵更新の結果 (97b99f4e / d45443fa) は次のセッションで使用される。
 
+### 5.1 KDF の入力は常に enc_key_0 / sign_key_0
+
+v59 ログ (ログインフロー含む) で確認: KDF は毎回 enc_key_0 / sign_key_0 を入力として使用する。
+enc_key_1 → enc_key_2 のようなチェーン更新は行われない。
+
+### 5.2 ログイン時の鍵配送 (v59 で解明)
+
+ログイン後、サーバーの key_response_data から新しいセッション鍵が配送される。
+**enc_key_1 を復号鍵として AES-128-CBC で復号**することで取得:
+
+```
+enc_key_2 の復号:
+  key = enc_key_1 = 97b99f4e88e8e73779aa20ac11877c5d
+  iv  = d85aee3d39bfb1a6a38307fc61cbcccf
+  ct  = 004e5f4b76443f81337c63ccc90be86e
+  pt  = 0d968f3aa8cb79f85d9135760d63c93a  (enc_key_2)
+
+sign_key_2 の復号:
+  key = enc_key_1 = 97b99f4e88e8e73779aa20ac11877c5d
+  iv  = d9ce8161058196b60cee9b81e8fff399
+  ct  = 830fdc90b712b43d60087887f7aef42a956fd8ad92dd9b82fcc771a247a3f5b3
+  pt  = 4eea8df1b3a59b20690739dc2e4080813438ef172c80ea8d0cc3d5298dd05a4e  (sign_key_2)
+```
+
+### 5.3 二重署名構造
+
+MSL メッセージには 2 種類の HMAC-SHA256 署名が付与される:
+
+| 署名鍵 | 対象サイズ | 用途 |
+|--------|-----------|------|
+| sign_key (セッション) | 76-499 bytes | MSL ヘッダー/チャンク署名 |
+| bootstrap_key (`38b2030d...`) | 6000-8500 bytes | ペイロード全体署名 |
+
+bootstrap_key の由来は不明 (バイナリにも存在せず、既知鍵から導出不可)。
+
 ---
 
 ## 6. Python 実装
