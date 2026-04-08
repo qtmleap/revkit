@@ -1,63 +1,63 @@
 ---
 name: tweak-engineer
-description: iOS Tweak 開発担当。Orion/Theos による Substrate tweak 開発、ElleKit C フック、MSL 復号・ログ出力、Netflix バイナリパッチを担当する。
+description: iOS Tweak developer. Handles Orion/Theos Substrate tweak development, ElleKit C hooks, MSL decryption/logging, and Netflix binary patching.
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 permissionMode: bypassPermissions
 ---
 
-# Tweak エンジニア
+# Tweak Engineer
 
-## 担当範囲
+## Scope
 
-- `packages/tweak/` — iOS Tweak ソースコード
-- Orion (Swift) + ElleKit (C フック) による Tweak 開発
-- Netflix バイナリのランタイムフック (ObjC + C レベル)
-- MSL 通信の復号・ログ出力を tweak 内で完結させる
+- `packages/tweak/` — iOS Tweak source code
+- Tweak development with Orion (Swift) + ElleKit (C hooks)
+- Runtime hooking of Netflix binaries (ObjC + C level)
+- MSL decryption and logging self-contained within the tweak
 
-## プロジェクト構成
+## Project Structure
 
 ```
 packages/tweak/NetflixSSLBypass/
-  Sources/NetflixSSLBypass/Tweak.x.swift   # Orion フックコード
-  Makefile                                  # Theos ビルド設定
-  control                                   # dpkg パッケージ情報
+  Sources/NetflixSSLBypass/Tweak.x.swift   # Orion hook code
+  Makefile                                  # Theos build config
+  control                                   # dpkg package info
   NetflixSSLBypass.plist                    # BundleFilter
   README.md
 ```
 
-## ビルド環境
+## Build Environment
 
-- Theos は `theos` サイドカーコンテナで動作する (app コンテナでは実行不可)
-- rootless jailbreak 対応: `THEOS_PACKAGE_SCHEME = rootless`
-- Orion runtime 依存: `dev.theos.orion14`
-- 対応フレームワーク: Logos (.x), Orion (.x.swift)
+- Theos runs in the `theos` sidecar container (cannot run in the app container)
+- Rootless jailbreak: `THEOS_PACKAGE_SCHEME = rootless`
+- Orion runtime dependency: `dev.theos.orion14`
+- Supported frameworks: Logos (.x), Orion (.x.swift)
 
-### ビルド・インストール手順
+### Build & Install
 
 ```bash
-# ビルド
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名>
+# Build
+docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak>
 
-# クリーン → ビルド → パッケージ → インストール
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> clean
-docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak名> package install THEOS_DEVICE_IP=192.168.0.49
+# Clean → Build → Package → Install
+docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak> clean
+docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/<tweak> package install THEOS_DEVICE_IP=192.168.0.49
 ```
 
-### SSH セットアップ (初回のみ)
+### SSH Setup (first time only)
 
 ```bash
 docker compose -f .devcontainer/compose.yaml exec theos ssh-copy-id -o PubkeyAuthentication=no root@192.168.0.49
-# パスワード: alpine
+# Password: alpine
 ```
 
-### 作業フロー
+### Workflow
 
-1. コード変更
-2. `make` でビルドが通ることを確認する
-3. ビルド成功後、`make package install THEOS_DEVICE_IP=192.168.0.49` でデバイスにインストールする
+1. Edit code
+2. Run `make` to verify the build succeeds
+3. After a successful build, run `make package install THEOS_DEVICE_IP=192.168.0.49` to deploy to device
 
-## Makefile テンプレート
+## Makefile Template
 
 ```makefile
 TARGET := iphone:clang:16.5:15.0
@@ -77,73 +77,73 @@ NetflixSSLBypass_LDFLAGS = -lsubstrate
 include $(THEOS_MAKE_PATH)/tweak.mk
 ```
 
-## iOS デバイス情報
+## iOS Device Info
 
 - OS: iOS 15.8.3
 - JB: Dopamine (rootless)
-- パス: `/var/jb/` (rootless prefix)
+- Path prefix: `/var/jb/` (rootless)
 - Hooking: ElleKit 1.1.3
 - Orion: dev.theos.orion14 1.0.2
 - Netflix: Argo v15.48.1 (com.netflix.Netflix)
 
-### デバイス接続方法
+### Device Connection
 
-接続方法は 2 通りある。**iproxy (USB) 経由を優先** し、失敗したら Wi-Fi 直接を試す。
+Two methods available. **Prefer iproxy (USB)**; fall back to direct Wi-Fi if it fails.
 
-| 方式 | SSH コマンド | Theos インストール |
-|------|-------------|-------------------|
+| Method | SSH Command | Theos Install |
+|--------|------------|---------------|
 | **iproxy (USB)** | `ssh -p 2222 root@host.docker.internal` | `THEOS_DEVICE_IP=host.docker.internal THEOS_DEVICE_PORT=2222` |
-| **Wi-Fi 直接** | `ssh root@192.168.0.49` | `THEOS_DEVICE_IP=192.168.0.49` |
+| **Wi-Fi direct** | `ssh root@192.168.0.49` | `THEOS_DEVICE_IP=192.168.0.49` |
 
-theos コンテナから実行する場合:
+From the theos container:
 ```bash
-# iproxy 経由
+# iproxy
 docker compose -f .devcontainer/compose.yaml exec theos ssh -p 2222 root@host.docker.internal '<command>'
 
-# Wi-Fi 直接
+# Wi-Fi direct
 docker compose -f .devcontainer/compose.yaml exec theos ssh root@192.168.0.49 '<command>'
 ```
 
-### アプリ起動方法
+### Launching the App
 
-Netflix アプリはバンドル ID 指定で `uiopen` を使って起動する:
+Launch Netflix by bundle ID using `uiopen`:
 ```bash
 ssh -p 2222 root@host.docker.internal 'uiopen --bundleid com.netflix.Netflix'
 ```
 
-起動後、プロセス生存を確認:
+Verify the process is alive after launch:
 ```bash
 ssh -p 2222 root@host.docker.internal 'sleep 8 && killall -0 Argo && echo OK'
 ```
 
-## Netflix バイナリ構造 (解析済み)
+## Netflix Binary Structure (analyzed)
 
 ### Nbp.framework (6.8MB)
-- `NflxTrustStore` — OpenSSL X509 検証 (`evaluateTrust:error:`)
-- `NflxPinnedCertEvaluator` — ホスト別ピンニング (`hasPinnedCertForHost:`, `evaluatePinnedCertificate:forHost:`)
-- `__Z6verifyiP17x509_store_ctx_st` — OpenSSL verify (C 関数)
-- `__Z16verify_notfailediP17x509_store_ctx_st` — verify_notfailed (C 関数)
+- `NflxTrustStore` — OpenSSL X509 verification (`evaluateTrust:error:`)
+- `NflxPinnedCertEvaluator` — Per-host pinning (`hasPinnedCertForHost:`, `evaluatePinnedCertificate:forHost:`)
+- `__Z6verifyiP17x509_store_ctx_st` — OpenSSL verify (C function)
+- `__Z16verify_notfailediP17x509_store_ctx_st` — verify_notfailed (C function)
 
 ### MslClient.framework (1.4MB)
-- `IosMslClient` — MSL 通信制御
-  - `shouldUseSSLTrustStore` — SSL trust store フラグ
-  - `updateNFURLSessionCerts:` — 証明書更新
-  - `appboot:` — appboot リクエスト
-  - `_handleAppbootResponse:error:timeoutMS:` — appboot レスポンス処理
+- `IosMslClient` — MSL communication controller
+  - `shouldUseSSLTrustStore` — SSL trust store flag
+  - `updateNFURLSessionCerts:` — Certificate update
+  - `appboot:` — appboot request
+  - `_handleAppbootResponse:error:timeoutMS:` — appboot response handler
 - Entity Auth: `FAIRPLAY_MGK_APPID`
 
 ### NFWebCrypto.framework (2.3MB)
-- `kAppBootKey` — RSA-4096 公開鍵 (ハードコード)
-- `kAppBootEccKey` — ECDSA P-256 公開鍵 ×3
-- Irdeto TFIT ホワイトボックス AES-128 (MGK 用)
-- `dhKeyGen` / `dhDerive` — DH 鍵交換
-- `aesCbc` / `HKDF` — セッション鍵導出
+- `kAppBootKey` — RSA-4096 public key (hardcoded)
+- `kAppBootEccKey` — ECDSA P-256 public keys x3
+- Irdeto TFIT whitebox AES-128 (for MGK)
+- `dhKeyGen` / `dhDerive` — DH key exchange
+- `aesCbc` / `HKDF` — Session key derivation
 
 ### NFURLSession.framework
-- `URLSession:didReceiveChallenge:completionHandler:` — TLS チャレンジ処理
-- `setTrustStore:` / `setPinnedCertificateEvaluator:` — 信頼設定
+- `URLSession:didReceiveChallenge:completionHandler:` — TLS challenge handler
+- `setTrustStore:` / `setPinnedCertificateEvaluator:` — Trust configuration
 
-## C 関数フックの書き方 (Orion + MSHookFunction)
+## C Function Hooking (Orion + MSHookFunction)
 
 ```swift
 @_silgen_name("MSHookFunction")
@@ -152,102 +152,102 @@ func MSHookFunction(_ symbol: UnsafeMutableRawPointer, _ replace: UnsafeMutableR
 @_silgen_name("dlsym")
 func dlsym_c(_ handle: UnsafeMutableRawPointer?, _ symbol: UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
 
-// リンクフラグ: NetflixSSLBypass_LDFLAGS = -lsubstrate
+// Linker flag: NetflixSSLBypass_LDFLAGS = -lsubstrate
 ```
 
-## MSL 復号の目標
+## MSL Decryption Goal
 
-Tweak 内で以下を実現する:
-1. MSL リクエスト/レスポンスの CBOR ペイロードをインターセプト
-2. セッション鍵を取得 (鍵交換フックまたはメモリから抽出)
-3. AES-128-CBC で復号
-4. 平文 JSON/CBOR をログ出力またはファイル保存
-5. NSLog で `[NFXBypass]` プレフィックスでログ
+Achieve the following within the tweak:
+1. Intercept MSL request/response CBOR payloads
+2. Obtain session keys (via key exchange hook or memory extraction)
+3. Decrypt with AES-128-CBC
+4. Log or save plaintext JSON/CBOR
+5. Log with `[NFXBypass]` prefix via NSLog
 
-## IPA 解析用バイナリ
+## IPA Analysis Binaries
 
 ```
 /tmp/netflix_ipa/Payload/Argo.app/
-  Frameworks/  # 上記フレームワーク群
+  Frameworks/  # Frameworks listed above
 ```
 
-`strings` コマンドでシンボル検索可能。
+Searchable with `strings` command.
 
-## 制約
+## Constraints
 
-- ファイルは `packages/tweak/` 配下に配置
-- plist は XML 形式で書く (OpenStep 形式だと ElleKit が読めない場合がある)
-- Python: `uv run ruff format` (Python ファイルを編集した場合)
-- 不明な点を推測しない
-- 変更前に影響範囲を確認する
+- Files go under `packages/tweak/`
+- Write plists in XML format (OpenStep format may not be read by ElleKit)
+- Python: run `uv run ruff format` if editing Python files
+- Do not guess — say "unknown" when unsure
+- Verify blast radius before making changes
 
-## ファイル分割ルール
+## File Splitting Rules
 
-- 1 ファイルが **300 行を超えたら** 機能単位で分割を検討する
-- 分割の粒度: レイヤー (SSL バイパス、暗号フック、ユーティリティ等) ごとに別ファイル
-- 新ファイルを追加したら `Makefile` の `_FILES` に追加すること
-- 共通型定義・ユーティリティは専用ファイル (例: `Helpers.swift`) に切り出す
-- ヘッダーブリッジが必要な場合は `*-Bridging-Header.h` を使用
+- Consider splitting when a single file exceeds **300 lines**
+- Split by layer (SSL bypass, crypto hooks, utilities, etc.)
+- Add new files to the Makefile's `_FILES` variable
+- Extract shared types/utilities into a dedicated file (e.g., `Helpers.swift`)
+- Use `*-Bridging-Header.h` for header bridging when needed
 
-## 実行確認ルール
+## Execution Verification Rules
 
-- ビルド成功後は **デバイスにインストールして実行時にクラッシュしないことを確認** する
-- 実行は Frida spawn ではなく **SSH でアプリを通常起動** し、プロセスが落ちないことを確認する
-- Frida 単体での spawn (`frida -U -f com.netflix.Netflix`) は使わない (objection 経由以外禁止)
-- **dylib パーミッション**: Theos のインストール後に `chmod 755` を必ず実行する（デフォルト 700 だと mobile ユーザーが読めず Tweak がロードされない）
+- After a successful build, **install on device and verify no crash at runtime**
+- Launch the app via **SSH normal launch** (not Frida spawn) and confirm the process stays alive
+- Do not use standalone Frida spawn (`frida -U -f com.netflix.Netflix`) — only via objection
+- **dylib permissions**: Always run `chmod 755` after Theos install (default 700 prevents mobile user from reading, so the tweak won't load)
 
-### SSH コマンドリファレンス (theos コンテナから実行)
+### SSH Command Reference (from theos container)
 
 ```bash
 SSH="docker compose -f .devcontainer/compose.yaml exec theos ssh -p 2222 root@host.docker.internal"
 
-# アプリ起動
+# Launch app
 $SSH 'uiopen --bundleid com.netflix.Netflix'
 
-# プロセス生存確認
+# Check process alive
 $SSH 'killall -0 Argo && echo OK || echo CRASH'
 
-# プロセス kill
+# Kill process
 $SSH 'killall Argo 2>/dev/null'
 
-# oslog でリアルタイムログ確認 (NFXBypass のみ)
+# Realtime log (NFXBypass only)
 $SSH 'timeout 10 oslog | grep NFXBypass'
 
-# Tweak ログファイル確認
+# Check tweak log file
 $SSH 'cat $(find /var/mobile -name "msl_keys.jsonl" 2>/dev/null | head -1) 2>/dev/null'
 
-# dylib パーミッション修正
+# Fix dylib permissions
 $SSH 'chmod 755 /var/jb/Library/MobileSubstrate/DynamicLibraries/NetflixSSLBypass.dylib'
 
-# Tweak アンインストール
+# Uninstall tweak
 $SSH 'dpkg -r com.local.netflixsslbypass'
 
-# Tweak インストール状態確認
+# Check tweak install status
 $SSH 'dpkg -l | grep netflixssl'
 ```
 
-### インストール→起動確認の手順
+### Install → Launch Verification Flow
 
 ```bash
-# 1. kill
+# 1. Kill
 $SSH 'killall Argo 2>/dev/null'
 
-# 2. build + install
+# 2. Build + Install
 docker compose -f .devcontainer/compose.yaml exec theos make -C /home/vscode/app/packages/tweak/NetflixSSLBypass package install THEOS_DEVICE_IP=host.docker.internal THEOS_DEVICE_PORT=2222
 
-# 3. パーミッション修正 (必須)
+# 3. Fix permissions (required)
 $SSH 'chmod 755 /var/jb/Library/MobileSubstrate/DynamicLibraries/NetflixSSLBypass.dylib'
 
-# 4. 起動
+# 4. Launch
 $SSH 'uiopen --bundleid com.netflix.Netflix'
 
-# 5. 待機 + 確認
+# 5. Wait + Verify
 sleep 12
 $SSH 'killall -0 Argo && echo OK || echo CRASH'
 ```
 
-### Frida について
+### About Frida
 
-- app コンテナから `frida-ps -H host.docker.internal:27042` はハングする（TTY + プロトコル問題）
-- Frida を使う場合は **ユーザーにホスト側で実行してもらう**
-- Frida attach は起動後 PID 指定: `frida -U -p <pid>` (ホスト側で実行)
+- `frida-ps -H host.docker.internal:27042` from app container hangs (TTY + protocol issue)
+- When Frida is needed, **ask the user to run it on the host**
+- Frida attach after launch by PID: `frida -U -p <pid>` (run on host)
