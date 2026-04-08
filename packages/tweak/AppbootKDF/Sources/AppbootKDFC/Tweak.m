@@ -540,9 +540,16 @@ static int hook_HMAC_Init_ex(HMAC_CTX *ctx, const void *key, int key_len,
     if (!g_inHook && key && key_len > 0 && key_len <= 256) {
         g_inHook = 1;
         NSString *keyHex = hexEncode((const uint8_t *)key, (size_t)key_len);
-        file_log(g_log_hmac,
-                 [NSString stringWithFormat:@"[HMAC] HMAC_Init_ex ctx=%p key(%dB)=%@",
-                  (void *)ctx, key_len, keyHex]);
+        if (key_len == 48) {
+            void *caller = __builtin_return_address(0);
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:@"[HMAC] HMAC_Init_ex 48B_key ctx=%p key=%@ caller=%p",
+                      (void *)ctx, keyHex, caller]);
+        } else {
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:@"[HMAC] HMAC_Init_ex ctx=%p key(%dB)=%@",
+                      (void *)ctx, key_len, keyHex]);
+        }
         g_inHook = 0;
     }
     return ret;
@@ -602,6 +609,72 @@ static void hook_AES_encrypt(const unsigned char *in, unsigned char *out,
         file_log(g_log_aesCbc,
                  [NSString stringWithFormat:@"[AES_encrypt] #%d in=%@ out=%@",
                   g_tfit_pair_count, inHex, outHex]);
+        g_inHook = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 10: SHA384 (one-shot)
+//
+// Signature: unsigned char *SHA384(const unsigned char *d, size_t n,
+//                                  unsigned char *md)
+// Returns: pointer to 48-byte digest buffer
+//
+// Captures: input data (up to 256B logged as hex), input length, 48B output
+// ---------------------------------------------------------------------------
+
+static unsigned char *(*orig_SHA384)(const unsigned char *d, size_t n,
+                                      unsigned char *md);
+
+static unsigned char *hook_SHA384(const unsigned char *d, size_t n,
+                                   unsigned char *md) {
+    unsigned char *ret = orig_SHA384(d, n, md);
+
+    if (!g_inHook && ret) {
+        g_inHook = 1;
+
+        size_t logLen = (n > 256) ? 256 : n;
+        NSString *inHex  = hexEncode(d, logLen);
+        NSString *suffix = (n > 256)
+            ? [NSString stringWithFormat:@"...(%zuB total)", n]
+            : @"";
+        NSString *outHex = hexEncode(ret, 48);
+
+        file_log(g_log_general,
+                 [NSString stringWithFormat:@"[SHA384] in(%zuB)=%@%@ out(48B)=%@",
+                  n, inHex, suffix, outHex]);
+
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 11: _TFIT_wbaes_ecb_encrypt_iAES11 (whitebox AES block encrypt)
+//
+// Resolved at runtime via dlsym; skipped if symbol not found.
+// Captures 16-byte input and 16-byte output per call.
+// ---------------------------------------------------------------------------
+
+static void (*orig_TFIT_wbaes)(const unsigned char *in, unsigned char *out,
+                                const void *ctx);
+
+static void hook_TFIT_wbaes(const unsigned char *in, unsigned char *out,
+                             const void *ctx) {
+    uint8_t in_copy[16];
+    if (in && !g_inHook) {
+        memcpy(in_copy, in, 16);
+    }
+
+    orig_TFIT_wbaes(in, out, ctx);
+
+    if (!g_inHook && in && out) {
+        g_inHook = 1;
+        NSString *inHex  = hexEncode(in_copy, 16);
+        NSString *outHex = hexEncode(out, 16);
+        file_log(g_log_aesCbc,
+                 [NSString stringWithFormat:@"[TFIT_wbaes] in=%@ out=%@",
+                  inHex, outHex]);
         g_inHook = 0;
     }
 }
@@ -766,6 +839,28 @@ __attribute__((constructor)) static void init(void) {
         file_log(g_log_general, @"[+] HMAC_Final hooked");
     } else {
         file_log(g_log_general, @"[-] HMAC_Final not found");
+    }
+
+    // ---- HOOK 10: SHA384 one-shot ----
+    sym = dlsym(nfwc, "SHA384");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_SHA384, (void **)&orig_SHA384);
+        file_log(g_log_general, @"[+] SHA384 hooked");
+    } else {
+        file_log(g_log_general, @"[-] SHA384 not found");
+    }
+
+    // ---- HOOK 11: _TFIT_wbaes_ecb_encrypt_iAES11 (whitebox AES) ----
+    sym = dlsym(nfwc, "_TFIT_wbaes_ecb_encrypt_iAES11");
+    if (!sym) {
+        // Some builds export without leading underscore
+        sym = dlsym(nfwc, "TFIT_wbaes_ecb_encrypt_iAES11");
+    }
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_TFIT_wbaes, (void **)&orig_TFIT_wbaes);
+        file_log(g_log_general, @"[+] TFIT_wbaes_ecb_encrypt_iAES11 hooked");
+    } else {
+        file_log(g_log_general, @"[-] TFIT_wbaes_ecb_encrypt_iAES11 not found (skipped)");
     }
 
     file_log(g_log_general, @"=== AppbootKDF hooks installed ===");
