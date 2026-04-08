@@ -253,22 +253,50 @@ class NetflixCrypto:
 
         return new_enc_key, new_sign_key
 
-    # ---- Phase 2: TFIT KDF (初期セッション鍵導出) ----
+    # ---- Phase 2: 初期セッション鍵導出 ----
+
+    @staticmethod
+    def derive_hmac384_key(
+        psk: bytes,
+        enc_key_0: bytes,
+        sign_key_0: bytes,
+        nonce: bytes,
+    ) -> bytes:
+        """Phase 3 KDF の session_bind から 48B HMAC-SHA384 鍵を導出.
+
+        session_check = HMAC-SHA256(PSK, enc_key_0 || sign_key_0)
+        session_bind  = HMAC-SHA256(session_check, nonce)
+        48B_key       = SHA384(session_bind[:16])
+
+        Args:
+            psk:        Pre-Shared Key (16 bytes)
+            enc_key_0:  保存済み暗号化鍵 (16 bytes)
+            sign_key_0: 保存済み署名鍵 (32 bytes)
+            nonce:      ハードコード nonce (16 bytes)
+
+        Returns:
+            48 バイトの HMAC-SHA384 鍵
+        """
+        session_check = hmac_mod.new(psk, enc_key_0 + sign_key_0, hashlib.sha256).digest()
+        session_bind = hmac_mod.new(session_check, nonce, hashlib.sha256).digest()
+        return hashlib.sha384(session_bind[:16]).digest()
 
     @staticmethod
     def derive_initial_session_keys(
         tfit_key: bytes,
         dh_shared_secret: bytes,
     ) -> tuple[bytes, bytes]:
-        """Phase 2 初期セッション鍵導出 (TFIT KDF).
+        """Phase 2 初期セッション鍵導出.
 
-        HMAC-SHA384(TFIT_KEY_48B, 0x00 || DH_SHARED_SECRET_128B) → 48 bytes
+        HMAC-SHA384(48B_KEY, 0x00 || DH_SHARED_SECRET_128B) → 48 bytes
           enc_key  = output[0:16]   (AES-128 暗号化鍵)
           sign_key = output[16:48]  (HMAC-SHA256 署名鍵)
 
+        48B_KEY は derive_hmac384_key() で導出するか、直接指定する。
+
         Args:
-            tfit_key:         TFIT ホワイトボックス AES から導出した 48 バイト鍵
-            dh_shared_secret: DH_compute_key から得た 128 バイト生共有秘密
+            tfit_key:         48 バイト HMAC-SHA384 鍵
+            dh_shared_secret: DH_compute_key から得た 128 バイト共有秘密
 
         Returns:
             (enc_key, sign_key) — それぞれ 16 bytes, 32 bytes
