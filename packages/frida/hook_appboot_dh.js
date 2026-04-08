@@ -59,6 +59,7 @@ var fnNames = [
     "DH_generate_key", "DH_compute_key", "DH_new", "DH_free",
     "DH_get0_key", "DH_get0_pqg", "DH_set0_pqg", "DH_set0_key",
     "BN_new", "BN_free", "BN_bin2bn", "BN_bn2bin", "BN_num_bits", "BN_dup",
+    "BN_mod_exp", "BN_CTX_new", "BN_CTX_free",
     "SHA256", "SHA384",
     "AES_set_decrypt_key", "AES_cbc_encrypt",
     "HMAC",
@@ -228,6 +229,78 @@ if (fn.DH_compute_key) {
     console.log("[+] DH_compute_key hooked (observer)");
 }
 
+// ===== Hook BN_mod_exp to catch manual DH computation =====
+// DH_compute_key internally does: shared_secret = server_pub ^ priv mod p
+// Netflix may call BN_mod_exp directly instead of DH_compute_key
+
+var g_dhGenerateTime = 0;  // timestamp when DH_generate_key fired
+
+if (fn.BN_mod_exp) {
+    // BN_mod_exp(BIGNUM *r, const BIGNUM *a, const BIGNUM *p_exp, const BIGNUM *m, BN_CTX *ctx)
+    Interceptor.attach(fn.BN_mod_exp, {
+        onEnter: function (args) {
+            this.r = args[0];
+            this.a = args[1];      // base
+            this.p_exp = args[2];  // exponent
+            this.m = args[3];      // modulus
+
+            // Only log if BN sizes suggest DH (1024-bit modulus)
+            if (BN_num_bits) {
+                var mBits = BN_num_bits(this.m);
+                var aBits = BN_num_bits(this.a);
+                var expBits = BN_num_bits(this.p_exp);
+
+                // DH: base^exp mod p where p is 1024-bit
+                if (mBits >= 1020 && mBits <= 1030) {
+                    this.isDH = true;
+                    console.log("\n[BN_mod_exp] DH-sized operation detected!");
+                    console.log("  base: " + aBits + " bits");
+                    console.log("  exp:  " + expBits + " bits");
+                    console.log("  mod:  " + mBits + " bits");
+
+                    // Dump base (first 32 bytes)
+                    if (BN_bn2bin) {
+                        var aBytes = (aBits + 7) >> 3;
+                        var aBuf = Memory.alloc(aBytes);
+                        BN_bn2bin(this.a, aBuf);
+                        console.log("  base hex: " + hex(aBuf, Math.min(aBytes, 32)) + (aBytes > 32 ? "..." : ""));
+
+                        var expBytes = (expBits + 7) >> 3;
+                        var expBuf = Memory.alloc(expBytes);
+                        BN_bn2bin(this.p_exp, expBuf);
+                        console.log("  exp hex:  " + hex(expBuf, Math.min(expBytes, 32)) + (expBytes > 32 ? "..." : ""));
+                    }
+                }
+            }
+        },
+        onLeave: function (retval) {
+            if (this.isDH && retval.toInt32() === 1 && BN_num_bits && BN_bn2bin) {
+                var rBits = BN_num_bits(this.r);
+                var rBytes = (rBits + 7) >> 3;
+                var rBuf = Memory.alloc(rBytes);
+                BN_bn2bin(this.r, rBuf);
+                var resultHex = hex(rBuf, rBytes);
+                console.log("[BN_mod_exp] result (" + rBytes + "B) = " + resultHex.substring(0, 64) + (rBytes > 32 ? "..." : ""));
+
+                // Store as potential DH shared secret
+                g_dhSharedSecret = resultHex;
+                console.log("[*] Stored as potential DH shared secret");
+
+                // Print backtrace to identify caller
+                console.log("  backtrace:");
+                var bt = Thread.backtrace(this.context, Backtracer.ACCURATE).slice(0, 6);
+                bt.forEach(function (addr) {
+                    var sym = DebugSymbol.fromAddress(addr);
+                    console.log("    " + addr + " " + sym);
+                });
+            }
+        }
+    });
+    console.log("[+] BN_mod_exp hooked (DH-sized filter)");
+}
+
+var g_dhSharedSecret = null;  // hex string from BN_mod_exp
+
 // ===== RPC functions callable from Frida console =====
 
 // Set server's DH public key (from appboot response)
@@ -308,6 +381,65 @@ function hmacSha256(keyBytes, dataBytes) {
     return new Uint8Array(outBuf.readByteArray(32));
 }
 
+// Helper: compute DH shared secret manually via BN_mod_exp
+// shared_secret = server_pub ^ priv mod p
+function computeViaBnModExp() {
+    if (!g_dhPrivKey || !g_serverPubKey || !g_dhP || !fn.BN_mod_exp) {
+        console.log("[-] Missing data for BN_mod_exp (need priv, server_pub, p)");
+        return null;
+    }
+
+    var BN_mod_exp_fn = new NativeFunction(fn.BN_mod_exp,
+        'int', ['pointer', 'pointer', 'pointer', 'pointer', 'pointer']);
+    var BN_CTX_new_fn = fn.BN_CTX_new ? new NativeFunction(fn.BN_CTX_new,
+        'pointer', []) : null;
+    var BN_CTX_free_fn = fn.BN_CTX_free ? new NativeFunction(fn.BN_CTX_free,
+        'void', ['pointer']) : null;
+    var BN_new_fn = fn.BN_new ? new NativeFunction(fn.BN_new, 'pointer', []) : null;
+
+    // Create BIGNUMs
+    var privBytes = hexToBytes(g_dhPrivKey);
+    var privBuf = Memory.alloc(privBytes.length);
+    privBuf.writeByteArray(privBytes.buffer);
+    var privBN = BN_bin2bn(privBuf, privBytes.length, ptr(0));
+
+    var pubBytes = hexToBytes(g_serverPubKey);
+    var pubBuf = Memory.alloc(pubBytes.length);
+    pubBuf.writeByteArray(pubBytes.buffer);
+    var pubBN = BN_bin2bn(pubBuf, pubBytes.length, ptr(0));
+
+    var pBytes = hexToBytes(g_dhP);
+    var pBuf = Memory.alloc(pBytes.length);
+    pBuf.writeByteArray(pBytes.buffer);
+    var pBN = BN_bin2bn(pBuf, pBytes.length, ptr(0));
+
+    var rBN = BN_new_fn ? BN_new_fn() : BN_bin2bn(ptr(0), 0, ptr(0));
+    var ctx = BN_CTX_new_fn ? BN_CTX_new_fn() : ptr(0);
+
+    console.log("[BN_mod_exp] Computing server_pub ^ priv mod p ...");
+    var ret = BN_mod_exp_fn(rBN, pubBN, privBN, pBN, ctx);
+
+    if (ret !== 1) {
+        console.log("[-] BN_mod_exp failed");
+        BN_free(privBN); BN_free(pubBN); BN_free(pBN); BN_free(rBN);
+        if (BN_CTX_free_fn && !ctx.isNull()) BN_CTX_free_fn(ctx);
+        return null;
+    }
+
+    var rBits = BN_num_bits(rBN);
+    var rLen = (rBits + 7) >> 3;
+    var rBuf = Memory.alloc(rLen);
+    BN_bn2bin(rBN, rBuf);
+    var result = new Uint8Array(rBuf.readByteArray(rLen));
+
+    console.log("[+] BN_mod_exp result (" + rLen + "B) = " + bytesToHex(result).substring(0, 64) + "...");
+
+    BN_free(privBN); BN_free(pubBN); BN_free(pBN); BN_free(rBN);
+    if (BN_CTX_free_fn && !ctx.isNull()) BN_CTX_free_fn(ctx);
+
+    return result;
+}
+
 // Main: compute shared secret and try to decrypt key 33.6
 rpc.exports.computeAndDecrypt = function () {
     return computeAndDecryptImpl();
@@ -316,61 +448,82 @@ rpc.exports.computeAndDecrypt = function () {
 function computeAndDecryptImpl() {
     console.log("\n========== computeAndDecrypt ==========");
 
-    if (!g_dhHandle) {
-        console.log("[-] No DH handle. Wait for DH_generate_key to fire.");
+    var sharedSecret = null;
+    var sharedHex = null;
+
+    // --- Strategy 1: Use BN_mod_exp captured shared secret ---
+    if (g_dhSharedSecret) {
+        console.log("[*] Using BN_mod_exp captured shared secret");
+        sharedSecret = hexToBytes(g_dhSharedSecret);
+        sharedHex = g_dhSharedSecret;
+        console.log("[+] shared_secret (" + sharedSecret.length + "B) = " + sharedHex.substring(0, 64) + "...");
+    }
+    // --- Strategy 2: Compute via DH_compute_key ---
+    else if (g_dhHandle && g_serverPubKey && DH_compute_key) {
+        console.log("[*] Computing via DH_compute_key");
+
+        var serverPubBytes = hexToBytes(g_serverPubKey);
+        var serverPubBuf = Memory.alloc(serverPubBytes.length);
+        serverPubBuf.writeByteArray(serverPubBytes.buffer);
+
+        var serverPubBN = BN_bin2bn(serverPubBuf, serverPubBytes.length, ptr(0));
+        if (serverPubBN.isNull()) {
+            console.log("[-] BN_bin2bn failed for server pub key");
+            return;
+        }
+
+        var outBuf = Memory.alloc(256);
+        var sharedLen = DH_compute_key(outBuf, serverPubBN, g_dhHandle);
+        BN_free(serverPubBN);
+
+        if (sharedLen <= 0) {
+            console.log("[-] DH_compute_key failed: " + sharedLen);
+            console.log("[*] Trying BN_mod_exp fallback...");
+            sharedSecret = computeViaBnModExp();
+            if (!sharedSecret) return;
+            sharedHex = bytesToHex(sharedSecret);
+        } else {
+            sharedSecret = new Uint8Array(outBuf.readByteArray(sharedLen));
+            sharedHex = bytesToHex(sharedSecret);
+        }
+    }
+    // --- Strategy 3: Manual BN_mod_exp ---
+    else if (g_dhPrivKey && g_serverPubKey && g_dhP && fn.BN_mod_exp) {
+        console.log("[*] Computing via manual BN_mod_exp");
+        sharedSecret = computeViaBnModExp();
+        if (!sharedSecret) return;
+        sharedHex = bytesToHex(sharedSecret);
+    } else {
+        console.log("[-] Need either: BN_mod_exp captured data, or DH handle + server pub key, or priv+pub+p for manual BN_mod_exp");
+        console.log("    DH handle: " + (g_dhHandle ? "yes" : "no"));
+        console.log("    Server pub: " + (g_serverPubKey ? "yes" : "no"));
+        console.log("    Priv key: " + (g_dhPrivKey ? "yes" : "no"));
+        console.log("    DH p: " + (g_dhP ? "yes" : "no"));
         return;
     }
-    if (!g_serverPubKey) {
-        console.log("[-] No server pub key. Call setServerPubKey(hex)");
-        return;
-    }
 
-    // --- Step 1: Convert server pub key hex to BIGNUM ---
-    var serverPubBytes = hexToBytes(g_serverPubKey);
-    var serverPubBuf = Memory.alloc(serverPubBytes.length);
-    serverPubBuf.writeByteArray(serverPubBytes.buffer);
-
-    var serverPubBN = BN_bin2bn(serverPubBuf, serverPubBytes.length, ptr(0));
-    if (serverPubBN.isNull()) {
-        console.log("[-] BN_bin2bn failed for server pub key");
-        return;
-    }
-    console.log("[+] Server pub key BIGNUM created (" + serverPubBytes.length + " bytes)");
-
-    // --- Step 2: Call DH_compute_key ---
-    var outBuf = Memory.alloc(256);
-    var sharedLen = DH_compute_key(outBuf, serverPubBN, g_dhHandle);
-    BN_free(serverPubBN);
-
-    if (sharedLen <= 0) {
-        console.log("[-] DH_compute_key failed: " + sharedLen);
-        return;
-    }
-
-    var sharedSecret = new Uint8Array(outBuf.readByteArray(sharedLen));
-    var sharedHex = bytesToHex(sharedSecret);
-    console.log("[+] DH shared_secret (" + sharedLen + "B) = " + sharedHex);
+    console.log("[+] DH shared_secret (" + sharedSecret.length + "B) = " + sharedHex.substring(0, 64) + "...");
 
     // --- Step 3: Derive candidate keys from shared_secret ---
     console.log("\n--- Candidate key derivation ---");
 
     // 3a. SHA-384(shared_secret)
     var sha384Out = Memory.alloc(48);
-    var sha384In = Memory.alloc(sharedLen);
+    var sha384In = Memory.alloc(sharedSecret.length);
     sha384In.writeByteArray(sharedSecret.buffer);
-    SHA384(sha384In, sharedLen, sha384Out);
+    SHA384(sha384In, sharedSecret.length, sha384Out);
     var sha384 = new Uint8Array(sha384Out.readByteArray(48));
     console.log("[SHA384] " + bytesToHex(sha384));
     console.log("  enc_candidate = " + bytesToHex(sha384.slice(0, 16)));
     console.log("  sign_candidate = " + bytesToHex(sha384.slice(16, 48)));
 
     // 3b. SHA-384(0x00 || shared_secret) — MSL Java reference style
-    var padded1 = new Uint8Array(1 + sharedLen);
+    var padded1 = new Uint8Array(1 + sharedSecret.length);
     padded1[0] = 0x00;
     padded1.set(sharedSecret, 1);
     var padded1Buf = Memory.alloc(padded1.length);
     padded1Buf.writeByteArray(padded1.buffer);
-    SHA384(padded1Buf, padded1.length, sha384Out);
+    SHA384(padded1Buf, 1 + sharedSecret.length, sha384Out);
     var sha384null = new Uint8Array(sha384Out.readByteArray(48));
     console.log("[SHA384(0x00||ss)] " + bytesToHex(sha384null));
     console.log("  enc_candidate = " + bytesToHex(sha384null.slice(0, 16)));
@@ -378,7 +531,7 @@ function computeAndDecryptImpl() {
 
     // 3c. SHA-256(shared_secret)
     var sha256Out = Memory.alloc(32);
-    SHA256(sha384In, sharedLen, sha256Out);
+    SHA256(sha384In, sharedSecret.length, sha256Out);
     var sha256 = new Uint8Array(sha256Out.readByteArray(32));
     console.log("[SHA256] " + bytesToHex(sha256));
     console.log("  enc_candidate = " + bytesToHex(sha256.slice(0, 16)));
@@ -502,6 +655,7 @@ global.getState = function () {
     console.log("Client pub: " + (g_dhPubKey ? g_dhPubKey.substring(0, 32) + "..." : "null"));
     console.log("Client priv: " + (g_dhPrivKey ? g_dhPrivKey.substring(0, 32) + "..." : "null"));
     console.log("Server pub: " + (g_serverPubKey ? g_serverPubKey.substring(0, 32) + "..." : "null"));
+    console.log("BN_mod_exp captured: " + (g_dhSharedSecret ? g_dhSharedSecret.substring(0, 32) + "..." : "null"));
     console.log("key 33.6: " + (g_key336 ? g_key336.substring(0, 32) + "... (" + (g_key336.length / 2) + "B)" : "null"));
     console.log("key 33.9: " + (g_key339 || "null"));
 };
