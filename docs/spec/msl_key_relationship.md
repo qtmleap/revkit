@@ -21,16 +21,18 @@ graph TD
     subgraph Phase1["Phase 1: appboot 鍵交換"]
         DH_P --> DH_GEN["DH 鍵ペア生成"]
         DH_G --> DH_GEN
-        DH_GEN --> DH_PUB["クライアント DH 公開鍵"]
-        RSA_BOOT -->|暗号化| DH_REQ["appboot リクエスト"]
-        DH_PUB --> DH_REQ
-        DH_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
+        DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
+        DH_PUB --> KEY336_REQ["key 33.6 リクエスト 464B"]
+        RSA_BOOT -.->|不明| KEY336_REQ
+        KEY336_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
         SERVER --> DH_RESP["appboot レスポンス key 33"]
-        ECC_BOOT -->|署名検証| DH_RESP
+        ECC_BOOT -.->|署名検証?| DH_RESP
     end
 
     subgraph Phase2["Phase 2: 初期セッション鍵導出 -- 解明済み"]
-        DH_GEN -->|DH_compute_key| DH_SHARED["DH 共有秘密 1024-bit"]
+        DH_RESP -->|サーバー DH 公開鍵| DH_COMPUTE["DH_compute_key"]
+        DH_GEN -->|クライアント DH 秘密鍵| DH_COMPUTE
+        DH_COMPUTE --> DH_SHARED["DH 共有秘密 1024-bit"]
         KEY48["48B 鍵 384-bit"] -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
         DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
         PHASE2_KDF --> ENC0["enc_key_0 128-bit"]
@@ -82,6 +84,7 @@ graph TD
     %% 黄: 計算可能 (48B 鍵が判明すれば)
     style KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
     style PHASE2_KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
+    style DH_COMPUTE fill:#f1c40f,stroke:#d4ac0f,color:#000
     style ENC0 fill:#f1c40f,stroke:#d4ac0f,color:#000
     style SIGN0 fill:#f1c40f,stroke:#d4ac0f,color:#000
     style ENC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
@@ -92,16 +95,18 @@ graph TD
     %% オレンジ: 由来不明
     style KEY48 fill:#fa0,stroke:#a60,color:#fff
     style BOOT_KEY fill:#fa0,stroke:#a60,color:#fff
+    style KEY336_REQ fill:#fa0,stroke:#a60,color:#fff
 ```
 
 ### 凡例
 
-| 色 | 意味 |
+| 色 / 線種 | 意味 |
 |----|------|
 | 赤 | バイナリ埋め込み |
 | 青 | サーバーレスポンス由来 |
 | 黄 | 計算可能 |
 | オレンジ | 由来不明 |
+| 点線 (-.->)  | 関与が推定されるが未実証 |
 
 ---
 
