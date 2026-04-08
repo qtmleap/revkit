@@ -44,11 +44,7 @@
             "installGradle": false
         }
     },
-    "forwardPorts": [8080, 9080],
-    "portsAttributes": {
-        "8080": { "label": "mitmweb", "protocol": "http" },
-        "9080": { "label": "mitmproxy", "protocol": "http" }
-    },
+    "forwardPorts": [9080],
     "otherPortsAttributes": {
         "onAutoForward": "ignore"
     },

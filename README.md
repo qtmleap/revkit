@@ -71,19 +71,25 @@ DevContainer で構築済み。`Rebuild Container` で全ツールが揃う。
 
 ## macOS ホスト設定
 
-DevContainer はDocker Desktop の Linux VM 内で動作するため、LAN 上のデバイス (iOS/Android) と直接通信できない。以下の設定で macOS を踏み台にして SSH / Frida を中継する。
+DevContainer は Docker Desktop の Linux VM 内で動作するため、iOS デバイスと直接通信できない。USB 接続の iproxy を経由することで、WiFi の IP 変更やネットワーク不安定の影響を受けずに接続できる。
 
-### 1. リモートログインを有効化
-
-**システム設定 → 一般 → 共有 → リモートログイン** をオンにする。
-
-### 2. SSH 公開鍵を登録
-
-コンテナ内の鍵を macOS の authorized_keys に追加する:
+### 1. iproxy のインストール (macOS)
 
 ```bash
-cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+brew install libimobiledevice
 ```
+
+### 2. iproxy の起動 (macOS)
+
+iPhone を USB で接続した状態で:
+
+```bash
+iproxy 2222 22 &
+iproxy 27042 27042 &
+```
+
+- `2222 → 22`: SSH 接続用
+- `27042 → 27042`: Frida 接続用
 
 ### 3. VS Code ポートフォワーディング設定
 
@@ -93,44 +99,9 @@ cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
 "remote.localPortHost": "allInterfaces"
 ```
 
-### 4. SSH config を設定
+### 4. SSH config (コンテナ内)
 
-`~/.ssh/config` に以下を追加して、macOS を踏み台にした ProxyJump を設定する。
-
-**エイリアスあり** (macOS ホストを再利用する場合):
-
-```sshconfig
-Host docker-host
-  HostName host.docker.internal
-  User <macOS のユーザー名>
-
-Host iPhone
-  HostName <デバイスの LAN IP>
-  User root
-  ProxyJump docker-host
-  LocalForward 27042 127.0.0.1:27042
-```
-
-**エイリアスなし** (シンプルに一つで完結):
-
-```sshconfig
-Host iPhone
-  HostName <デバイスの LAN IP>
-  User root
-  ProxyJump <macOS のユーザー名>@host.docker.internal
-  LocalForward 27042 127.0.0.1:27042
-```
-
-**iproxy (USB 経由)** — macOS ユーザー名やデバイス IP が不要:
-
-macOS 側で iproxy を起動しておく:
-
-```bash
-iproxy 2222 22 &
-iproxy 27042 27042 &
-```
-
-SSH config:
+`~/.ssh/config`:
 
 ```sshconfig
 Host iPhone
@@ -139,15 +110,13 @@ Host iPhone
   Port 2222
 ```
 
-Frida は `frida -H 127.0.0.1` ではなく `frida -H host.docker.internal` で接続する。
-
 ### 接続経路
 
 | 用途 | 方向 | 経路 |
 |------|------|------|
-| **SSH** | コンテナ → デバイス | `ssh iPhone` (ProxyJump で macOS を経由) |
-| **Frida** | コンテナ → デバイス | `ssh -fN iPhone` でトンネル確立後、`frida -H 127.0.0.1` で接続 |
-| **mitmproxy** | デバイス → コンテナ | デバイスのプロキシを macOS の LAN IP:9080 に設定 |
+| **SSH** | コンテナ → デバイス | `ssh iPhone` → `host.docker.internal:2222` → iproxy (USB) → デバイス:22 |
+| **Frida** | コンテナ → デバイス | `frida -H host.docker.internal` → iproxy (USB) → デバイス:27042 |
+| **mitmproxy** | デバイス → コンテナ | デバイスの WiFi プロキシを macOS の LAN IP:9080 に設定 |
 
 ## 使い方
 
@@ -161,10 +130,10 @@ uv run python tools/run.py packages/frida/<script>.js
 uv run python tools/run.py --android packages/frida/<script>.js
 ```
 
-`.env` にデバイスの IP を設定:
+`.env` にデバイスのホストを設定 (iproxy 経由の場合は `host.docker.internal`):
 
 ```
-IOS_HOST=192.168.x.x
+IOS_HOST=host.docker.internal
 ANDROID_HOST=192.168.x.x
 ```
 
