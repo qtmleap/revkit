@@ -9,55 +9,55 @@
 
 ```mermaid
 graph TD
-    subgraph "NFWebCrypto.framework"
-        PSK["PSK (128-bit)"]
-        NONCE_HARD["nonce (128-bit)"]
-        DH_P["DH p (1024-bit)"]
+    subgraph NFWebCrypto
+        PSK["PSK 128-bit"]
+        NONCE_HARD["nonce 128-bit"]
+        DH_P["DH p 1024-bit"]
         DH_G["DH g = 5"]
-        RSA_BOOT["kAppBootKey (RSA-4096)"]
-        ECC_BOOT["kAppBootEccKey (ECDSA P-256)"]
+        RSA_BOOT["kAppBootKey RSA-4096"]
+        ECC_BOOT["kAppBootEccKey ECDSA P-256"]
     end
 
-    subgraph "Phase 1: appboot 鍵交換"
+    subgraph Phase1["Phase 1: appboot 鍵交換"]
         DH_P --> DH_GEN["DH 鍵ペア生成"]
         DH_G --> DH_GEN
         DH_GEN --> DH_PUB["クライアント DH 公開鍵"]
         RSA_BOOT -->|暗号化| DH_REQ["appboot リクエスト"]
         DH_PUB --> DH_REQ
         DH_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
-        SERVER --> DH_RESP["appboot レスポンス (key 33)"]
+        SERVER --> DH_RESP["appboot レスポンス key 33"]
         ECC_BOOT -->|署名検証| DH_RESP
     end
 
-    subgraph "Phase 2: 初期セッション鍵導出 (未解明)"
-        DH_RESP --> KEY336["key 33.6 (768-bit 暗号文)"]
-        DH_RESP --> NONCE_SRV["key 33.9 (サーバー nonce)"]
-        KEY336 -->|"復号 (鍵=???)"| INIT_KEYS["初期セッション鍵"]
-        INIT_KEYS --> ENC0["enc_key_0 (128-bit)"]
-        INIT_KEYS --> SIGN0["sign_key_0 (256-bit)"]
+    subgraph Phase2["Phase 2: 初期セッション鍵導出 -- 未解明"]
+        DH_RESP --> KEY336["key 33.6 暗号文 768-bit"]
+        DH_RESP --> NONCE_SRV["key 33.9 サーバー nonce"]
+        KEY336 -->|復号 鍵不明| INIT_KEYS["初期セッション鍵"]
+        INIT_KEYS --> ENC0["enc_key_0 128-bit"]
+        INIT_KEYS --> SIGN0["sign_key_0 256-bit"]
     end
 
-    subgraph "Phase 3: KDF 鍵更新 (解明済み)"
-        PSK -->|HMAC key| KDF["KDF (HMAC-SHA256 chain)"]
-        ENC0 -->|入力 (常に enc_key_0)| KDF
-        SIGN0 -->|入力 (常に sign_key_0)| KDF
+    subgraph Phase3["Phase 3: KDF 鍵更新 -- 解明済み"]
+        PSK -->|HMAC key| KDF["KDF HMAC-SHA256 chain"]
+        ENC0 -->|常に enc_key_0| KDF
+        SIGN0 -->|常に sign_key_0| KDF
         NONCE_HARD -->|入力| KDF
-        KDF --> ENC1["enc_key_1 (128-bit)"]
-        KDF --> SIGN1["sign_key_1 (256-bit)"]
+        KDF --> ENC1["enc_key_1 128-bit"]
+        KDF --> SIGN1["sign_key_1 256-bit"]
     end
 
-    subgraph "Phase 4: ログイン鍵配送 (解明済み)"
+    subgraph Phase4["Phase 4: ログイン鍵配送 -- 解明済み"]
         SERVER2["Netflix サーバー"] -->|key_response_data| KRD["暗号化された新鍵"]
         ENC1 -->|AES-128-CBC 復号鍵| DECRYPT["AES-CBC 復号"]
         KRD --> DECRYPT
-        DECRYPT --> ENC2["enc_key_2 (128-bit)"]
-        DECRYPT --> SIGN2["sign_key_2 (256-bit)"]
+        DECRYPT --> ENC2["enc_key_2 128-bit"]
+        DECRYPT --> SIGN2["sign_key_2 256-bit"]
     end
 
-    subgraph "Phase 5: MSL 通信"
-        ENC2 -->|暗号化/復号| MSL_ENC["AES-128-CBC"]
-        SIGN2 -->|署名/検証| MSL_SIGN["HMAC-SHA256"]
-        BOOT_KEY["bootstrap_key (256-bit)"] -->|ペイロード全体署名| MSL_SIGN2["HMAC-SHA256 (二重署名)"]
+    subgraph Phase5["Phase 5: MSL 通信"]
+        ENC2 -->|暗号化 復号| MSL_ENC["AES-128-CBC"]
+        SIGN2 -->|署名 検証| MSL_SIGN["HMAC-SHA256"]
+        BOOT_KEY["bootstrap_key 256-bit"] -->|ペイロード全体署名| MSL_SIGN2["HMAC-SHA256 二重署名"]
         MSL_ENC --> PAYLOAD["manifest / license / logblob"]
         MSL_SIGN --> PAYLOAD
         MSL_SIGN2 --> PAYLOAD
@@ -83,7 +83,7 @@ graph TD
     style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
     style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
 
-    %% 黄: 計算可能 (KDF 出力)
+    %% 黄: 計算可能
     style KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
     style ENC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
     style SIGN1 fill:#f1c40f,stroke:#d4ac0f,color:#000
@@ -148,36 +148,36 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph "入力"
-        PSK2["PSK (128-bit)"]
-        ENC_OLD["enc_key_0 (128-bit)"]
-        SIGN_OLD["sign_key_0 (256-bit)"]
-        NONCE2["nonce (128-bit)"]
+    subgraph Input["入力"]
+        PSK2["PSK 128-bit"]
+        ENC_OLD["enc_key_0 128-bit"]
+        SIGN_OLD["sign_key_0 256-bit"]
+        NONCE2["nonce 128-bit"]
     end
 
-    subgraph "Step 1-2: セッションバインド"
+    subgraph Step12["Step 1-2: セッションバインド"]
         PSK2 -->|key| H1["HMAC-SHA256"]
-        ENC_OLD -->|"msg: enc || sign"| H1
-        SIGN_OLD -->|"msg: enc || sign"| H1
+        ENC_OLD -->|msg enc+sign| H1
+        SIGN_OLD -->|msg enc+sign| H1
         H1 -->|session_check| H2["HMAC-SHA256"]
         NONCE2 -->|msg| H2
-        H2 --> SB["session_bind (256-bit)"]
+        H2 --> SB["session_bind 256-bit"]
     end
 
-    subgraph "Step 3-4: 新暗号化鍵"
+    subgraph Step34["Step 3-4: 新暗号化鍵"]
         PSK2 -->|key| H3["HMAC-SHA256"]
         ENC_OLD -->|msg| H3
         H3 -->|enc_temp| H4["HMAC-SHA256"]
         NONCE2 -->|msg| H4
-        H4 -->|truncate 128-bit| NEW_ENC["enc_key_1 (128-bit)"]
+        H4 -->|truncate 128-bit| NEW_ENC["enc_key_1 128-bit"]
     end
 
-    subgraph "Step 5-6: 新署名鍵"
+    subgraph Step56["Step 5-6: 新署名鍵"]
         PSK2 -->|key| H5["HMAC-SHA256"]
         SIGN_OLD -->|msg| H5
         H5 -->|sign_temp| H6["HMAC-SHA256"]
         NONCE2 -->|msg| H6
-        H6 --> NEW_SIGN["sign_key_1 (256-bit)"]
+        H6 --> NEW_SIGN["sign_key_1 256-bit"]
     end
 
     %% 赤: バイナリ埋め込み
@@ -203,21 +203,21 @@ graph LR
 ```mermaid
 graph LR
     subgraph "サーバー key_response_data"
-        IV1["IV (128-bit)"]
-        CT1["暗号文 (128-bit)"]
-        IV2["IV (128-bit)"]
-        CT2["暗号文 (256-bit)"]
+        IV1["IV 128-bit"]
+        CT1["暗号文 128-bit"]
+        IV2["IV 128-bit"]
+        CT2["暗号文 256-bit"]
     end
 
-    ENC1["enc_key_1 (128-bit)"] -->|復号鍵| DEC1["AES-128-CBC 復号"]
+    ENC1["enc_key_1 128-bit"] -->|復号鍵| DEC1["AES-128-CBC 復号"]
     IV1 --> DEC1
     CT1 --> DEC1
-    DEC1 --> ENC2["enc_key_2 (128-bit)"]
+    DEC1 --> ENC2["enc_key_2 128-bit"]
 
     ENC1 -->|復号鍵| DEC2["AES-128-CBC 復号"]
     IV2 --> DEC2
     CT2 --> DEC2
-    DEC2 --> SIGN2["sign_key_2 (256-bit)"]
+    DEC2 --> SIGN2["sign_key_2 256-bit"]
 
     %% 黄: 計算可能
     style ENC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
