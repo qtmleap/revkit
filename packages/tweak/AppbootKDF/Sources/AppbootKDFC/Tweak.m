@@ -76,6 +76,10 @@ typedef struct bignum_st     BIGNUM;
 // BN helper function pointers (resolved in constructor, used by multiple hooks)
 static int (*fn_BN_num_bits_int)(const BIGNUM *) = NULL;
 static int (*fn_BN_bn2bin)(const BIGNUM *, unsigned char *) = NULL;
+
+// TFIT chain state (shared between AES_set_encrypt_key and AES_encrypt hooks)
+static volatile int g_tfit_active = 0;
+static int g_tfit_pair_count = 0;
 typedef struct evp_md_st     EVP_MD;
 typedef struct hmac_ctx_st   HMAC_CTX;
 typedef struct engine_st     ENGINE;
@@ -434,6 +438,29 @@ static int hook_AES_set_encrypt_key(const unsigned char *userKey, int bits, AES_
         file_log(g_log_aesCbc,
                  [NSString stringWithFormat:@"[aesCbc] AES_set_encrypt_key bits=%d key=%@",
                   bits, keyHex]);
+
+        // Detect KAT marker to activate TFIT capture
+        if (bits == 256) {
+            static const uint8_t kat_inc[32] = {
+                0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+                0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+                0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+                0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
+            };
+            if (memcmp(userKey, kat_inc, 32) == 0) {
+                g_tfit_active = 1;
+                g_tfit_pair_count = 0;
+                file_log(g_log_aesCbc, @"[TFIT] === chain started (KAT marker detected) ===");
+            }
+        }
+        // Deactivate on AES-128 (session key = end of TFIT chain)
+        if (bits == 128 && g_tfit_active) {
+            file_log(g_log_aesCbc,
+                     [NSString stringWithFormat:@"[TFIT] === chain ended (%d pairs captured) ===",
+                      g_tfit_pair_count]);
+            g_tfit_active = 0;
+        }
+
         g_inHook = 0;
     }
     return orig_AES_set_encrypt_key(userKey, bits, key);
@@ -542,6 +569,41 @@ static int hook_HMAC_Final(HMAC_CTX *ctx, unsigned char *md, unsigned int *md_le
         g_inHook = 0;
     }
     return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 9: AES_encrypt (single-block ECB, TFIT chain I/O capture)
+//
+// Signature: void AES_encrypt(const unsigned char *in, unsigned char *out,
+//                             const AES_KEY *key)
+//
+// Captures 16-byte input and 16-byte output for each TFIT round.
+// Only logged when g_tfit_active (between KAT marker and DH_compute_key).
+// ---------------------------------------------------------------------------
+
+static void (*orig_AES_encrypt)(const unsigned char *in, unsigned char *out,
+                                 const AES_KEY *key);
+
+static void hook_AES_encrypt(const unsigned char *in, unsigned char *out,
+                              const AES_KEY *key) {
+    // Capture input before call
+    uint8_t in_copy[16];
+    if (in && g_tfit_active && !g_inHook) {
+        memcpy(in_copy, in, 16);
+    }
+
+    orig_AES_encrypt(in, out, key);
+
+    if (g_tfit_active && !g_inHook && in && out) {
+        g_inHook = 1;
+        g_tfit_pair_count++;
+        NSString *inHex = hexEncode(in_copy, 16);
+        NSString *outHex = hexEncode(out, 16);
+        file_log(g_log_aesCbc,
+                 [NSString stringWithFormat:@"[AES_encrypt] #%d in=%@ out=%@",
+                  g_tfit_pair_count, inHex, outHex]);
+        g_inHook = 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -668,6 +730,15 @@ __attribute__((constructor)) static void init(void) {
         file_log(g_log_general, @"[+] AES_set_decrypt_key (aesCbc) hooked");
     } else {
         file_log(g_log_general, @"[-] AES_set_decrypt_key not found");
+    }
+
+    // ---- HOOK 9: AES_encrypt (TFIT chain I/O) ----
+    sym = dlsym(nfwc, "AES_encrypt");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_AES_encrypt, (void **)&orig_AES_encrypt);
+        file_log(g_log_general, @"[+] AES_encrypt hooked");
+    } else {
+        file_log(g_log_general, @"[-] AES_encrypt not found");
     }
 
     // ---- HOOK 6: HMAC one-shot ----
