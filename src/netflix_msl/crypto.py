@@ -229,15 +229,21 @@ class NetflixCrypto:
         self.sign_key = sign_key
 
     def import_keys_from_file(self, path: str) -> None:
-        """Frida が出力した鍵素材 JSON を読み込む (Scheme 3 用).
+        """鍵素材 JSON を読み込む (Scheme 3 用).
 
-        JSON 形式: {"enc_key": "<hex>", "sign_key": "<hex>"}
+        対応形式:
+          Frida: {"enc_key": "<hex>", "sign_key": "<hex>"}
+          Tweak: {"session_enc_key": "<hex>", "session_hmac_key": "<hex>", ...}
         """
         import json
 
         with open(path) as f:
             data = json.load(f)
 
-        enc_hex: str = data["enc_key"]
-        sign_hex: str = data["sign_key"]
+        enc_hex: str = data.get("enc_key") or data.get("session_enc_key", "")
+        sign_hex: str = data.get("sign_key") or data.get("session_hmac_key", "")
+        if not enc_hex or not sign_hex:
+            raise ValueError(
+                "JSON must contain enc_key/sign_key or session_enc_key/session_hmac_key"
+            )
         self.import_session_keys(bytes.fromhex(enc_hex), bytes.fromhex(sign_hex))

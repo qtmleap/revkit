@@ -91,25 +91,6 @@ iproxy 27042 27042 &
 - `2222 → 22`: SSH 接続用
 - `27042 → 27042`: Frida 接続用
 
-### 3. VS Code ポートフォワーディング設定
-
-`.vscode/settings.json` に以下を追加して、mitmproxy のポートを LAN に公開する:
-
-```json
-"remote.localPortHost": "allInterfaces"
-```
-
-### 4. SSH config (コンテナ内)
-
-`~/.ssh/config`:
-
-```sshconfig
-Host iPhone
-  HostName host.docker.internal
-  User root
-  Port 2222
-```
-
 ### 接続経路
 
 | 用途 | 方向 | 経路 |
@@ -139,9 +120,20 @@ ANDROID_HOST=192.168.x.x
 
 ### mitmproxy
 
+#### デバイス側の設定
+
+1. デバイスの WiFi プロキシを macOS の LAN IP、ポート `9080` に設定
+2. デバイスのブラウザで `http://mitm.it` にアクセスし、CA 証明書をインストール
+   - iOS: 設定 → 一般 → VPN とデバイス管理 → mitmproxy をインストール → 設定 → 一般 → 情報 → 証明書信頼設定 で有効化
+
+#### 起動
+
 ```bash
-uv run mitmdump -p 8080 -s packages/mitmproxy/<addon>.py
+uv run mitmdump --listen-port 9080 --set block_global=false \
+    -s packages/mitmproxy/<addon>.py
 ```
+
+アドオンは `packages/mitmproxy/` に配置。
 
 ### iOS Tweak (Theos)
 
@@ -168,3 +160,25 @@ jadx -d /tmp/out <apk>
 # Ghidra ヘッドレス解析
 analyzeHeadless /tmp/project name -import <binary>
 ```
+
+## Claude Code スキル
+
+本プロジェクト固有のスラッシュコマンド。Claude Code 内で使用できる。
+
+| コマンド | 説明 |
+|---------|------|
+| `/compose` | Agent Teams のリーダーとしてチームを編成し、計画策定→承認→実行のワークフローを開始する |
+| `/frida` | Frida を使った Android の Cookie + ESN キャプチャ手順をガイド |
+| `/proxyman` | Proxyman による MSL トラフィックキャプチャのセットアップ・解析 |
+
+### エージェント
+
+`/compose` から呼び出される専門エージェント。
+
+| エージェント | 担当 |
+|-------------|------|
+| `tweak-engineer` | iOS Tweak 開発 (Orion/Theos, ElleKit C フック) |
+| `frida-engineer` | Frida フックスクリプト、ランタイム解析 |
+| `mitmproxy-engineer` | mitmproxy アドオン、トラフィックキャプチャ |
+| `python-engineer` | Python ユーティリティ、デコーダー、データ処理 |
+| `log-monitor` | Frida/mitmproxy/Tweak のログ監視・レポート |

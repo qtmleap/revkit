@@ -141,3 +141,35 @@ MSL ペイロード内で以下の暗号化操作が行われる:
 |--------------|------|
 | `/msl/playapi/ios/event` | 再生イベント (play, pause, stop, position) |
 | `/msl/playapi/ios/logblob` | テレメトリデータ (品質指標、バッファリング等) |
+
+---
+
+## 7. MSL 復号パイプライン
+
+詳細: [ios_msl_decrypt_pipeline.md](ios_msl_decrypt_pipeline.md)
+
+### 7.1 鍵取得
+
+Tweak `AppbootKeyExtract` が NFWebCrypto.framework の OpenSSL エクスポート関数をフックし、
+DH 鍵交換 + セッション鍵をキャプチャする:
+
+| フック対象 | 取得する鍵 |
+|-----------|----------|
+| `DH_generate_key` | DH 公開鍵・秘密鍵 (各 128 bytes) |
+| `DH_compute_key` | DH 共有秘密 (128 bytes) |
+| `AES_set_encrypt_key` (128-bit) | セッション暗号化鍵 (16 bytes) |
+| `HMAC` (key_len=32) | セッション署名鍵 (32 bytes) |
+
+### 7.2 CBOR MSL 固有の差異
+
+| 項目 | JSON MSL (Chrome) | CBOR MSL (iOS) |
+|------|--------------------|---------------|
+| IV 格納 | `"iv"` フィールド (Base64, 16B) | ciphertext に prepend |
+| 復号後圧縮 (リクエスト) | gzip (Base64 経由) | CBOR bstr フレーム + gzip |
+| 復号後圧縮 (レスポンス) | gzip | raw deflate (`00 00` prefix) |
+
+### 7.3 復号 CLI
+
+```bash
+python tools/decrypt_capture.py --keys raws/msl_keys.json --input capture.bin
+```

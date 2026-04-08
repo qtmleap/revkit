@@ -90,6 +90,10 @@ class CborMslDecoder:
     def decode_message(self, data: bytes) -> dict[str, Any]:
         """CBOR バイト列を解析してヘッダーとペイロードを分離する.
 
+        MSL メッセージは複数の CBOR アイテムが連結されている場合がある:
+          Item 0: {32: header, 33: key_exchange, 16: signature}
+          Item 1: {64: payload_chunk, 16: signature}
+
         Returns:
             {
                 "header": dict | bytes | None,
@@ -97,22 +101,55 @@ class CborMslDecoder:
                 "key_exchange": bytes | None,
                 "payload_chunks": list[dict],  # raw CBOR dict (復号前)
                 "signature": bytes | None,
-                "raw": dict,  # CBOR デコードした生データ
+                "raw": list[dict],  # CBOR デコードした生データ
             }
         """
-        try:
-            raw = cbor2.loads(data)
-        except Exception as e:
-            raise DecodeError(f"CBOR デコード失敗: {e}") from e
+        from io import BytesIO
 
-        if not isinstance(raw, dict):
-            raise DecodeError(f"トップレベルが dict でない: {type(raw)}")
+        # 連結された CBOR アイテムをすべてデコード
+        buf = BytesIO(data)
+        cbor_items: list[dict] = []
+        while buf.tell() < len(data):
+            try:
+                item = cbor2.CBORDecoder(buf).decode()
+                if isinstance(item, dict):
+                    cbor_items.append(item)
+                else:
+                    break
+            except Exception:
+                break
 
-        header_raw = raw.get(KEY_HEADER)
-        entity_auth_raw = raw.get(KEY_ENTITY_AUTH)
-        key_exchange_raw = raw.get(KEY_KEY_EXCHANGE)
-        sig_raw = raw.get(KEY_MESSAGE_SIG)
-        payload_chunk_raw = raw.get(KEY_PAYLOAD_CHUNK)
+        if not cbor_items:
+            try:
+                raw = cbor2.loads(data)
+            except Exception as e:
+                raise DecodeError(f"CBOR デコード失敗: {e}") from e
+            if not isinstance(raw, dict):
+                raise DecodeError(f"トップレベルが dict でない: {type(raw)}")
+            cbor_items = [raw]
+
+        # 全アイテムからフィールドを集約
+        header_raw = None
+        entity_auth_raw = None
+        key_exchange_raw = None
+        sig_raw = None
+        chunks: list = []
+
+        for item in cbor_items:
+            if KEY_HEADER in item and header_raw is None:
+                header_raw = item[KEY_HEADER]
+            if KEY_ENTITY_AUTH in item and entity_auth_raw is None:
+                entity_auth_raw = item[KEY_ENTITY_AUTH]
+            if KEY_KEY_EXCHANGE in item and key_exchange_raw is None:
+                key_exchange_raw = item[KEY_KEY_EXCHANGE]
+            if KEY_MESSAGE_SIG in item:
+                sig_raw = item[KEY_MESSAGE_SIG]
+            if KEY_PAYLOAD_CHUNK in item:
+                pc = item[KEY_PAYLOAD_CHUNK]
+                if isinstance(pc, list):
+                    chunks.extend(pc)
+                else:
+                    chunks.append(pc)
 
         # ヘッダーはバイト列 or dict の場合がある
         header = (
@@ -128,21 +165,13 @@ class CborMslDecoder:
             else entity_auth_raw
         )
 
-        # payload_chunk は単一 dict の場合と list の場合がある
-        if payload_chunk_raw is None:
-            chunks = []
-        elif isinstance(payload_chunk_raw, list):
-            chunks = payload_chunk_raw
-        else:
-            chunks = [payload_chunk_raw]
-
         return {
             "header": header,
             "entity_auth_data": entity_auth,
             "key_exchange": key_exchange_raw,
             "payload_chunks": chunks,
             "signature": sig_raw if isinstance(sig_raw, bytes) else None,
-            "raw": raw,
+            "raw": cbor_items,
         }
 
     def decrypt_payload(self, encrypted_payload: bytes | dict) -> bytes:
@@ -172,8 +201,17 @@ class CborMslDecoder:
 
         if not isinstance(ciphertext, bytes):
             raise DecodeError(f"ciphertext が bytes でない: {type(ciphertext)}")
-        if not isinstance(iv, bytes) or len(iv) != 16:
-            raise DecodeError(f"iv が 16 bytes でない: {iv!r}")
+
+        # iOS CBOR format: IV field (key 7) is empty or 1 byte,
+        # actual 16-byte IV is prepended to the ciphertext
+        if not isinstance(iv, bytes) or len(iv) < 16:
+            if len(ciphertext) > 16:
+                iv = ciphertext[:16]
+                ciphertext = ciphertext[16:]
+            else:
+                raise DecodeError(
+                    f"iv が 16 bytes でなく、ciphertext からも抽出できない: iv={iv!r}"
+                )
 
         return self.crypto.decrypt(ciphertext, iv)
 
@@ -206,6 +244,10 @@ class CborMslDecoder:
 
         signature_valid が False でも payloads に復号結果を含める。
         """
+        # mitmproxy がレスポンスを gzip のまま保存する場合がある
+        if raw_data[:2] == b"\x1f\x8b":
+            raw_data = gzip.decompress(raw_data)
+
         msg = self.decode_message(raw_data)
 
         # 署名検証 (sign_key があれば)
@@ -257,12 +299,34 @@ class CborMslDecoder:
     def _parse_plaintext(plaintext: bytes) -> dict[str, Any]:
         """復号後の平文を解析する.
 
-        復号後のフォーマット (00_common.md §1.3):
-          JSON: {"data": "<base64>", "messageid": int, "compressionalgo": str, "sequencenumber": int}
-          data → base64 decode → gzip 展開 (compressionalgo が gzip の場合) → JSON
+        復号後のフォーマット:
 
-        CBOR の場合もあるため両方を試みる。
+        1. JSON 形式 (Chrome/Android):
+           {"data": "<base64>", "messageid": int, "compressionalgo": str, "sequencenumber": int}
+           data → base64 decode → gzip 展開 → JSON
+
+        2. iOS CBOR バイナリフレーム:
+           CBOR bstr(9) ヘッダー + CBOR bstr(N) gzip圧縮データ + トレーラー
+           構造: [0x49][9-byte header][0x59 LL LL][gzip data][trailer]
         """
+        # iOS CBOR バイナリフレーム (リクエスト): 先頭が 0x49 (bstr(9))
+        if len(plaintext) > 14 and plaintext[0] == 0x49:
+            return CborMslDecoder._parse_ios_binary_frame(plaintext)
+
+        # iOS レスポンス: 00 00 ff + raw deflate 圧縮
+        if len(plaintext) > 4 and plaintext[:2] == b"\x00\x00":
+            import zlib
+
+            try:
+                decompressed = zlib.decompress(plaintext[3:], -15)
+                try:
+                    body = json.loads(decompressed)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    body = {"_raw_text": decompressed.decode("utf-8", errors="replace")}
+                return {"body": body, "_compression": "deflate"}
+            except zlib.error:
+                pass
+
         # JSON を試みる
         try:
             outer = json.loads(plaintext)
@@ -316,3 +380,65 @@ class CborMslDecoder:
             **{k: v for k, v in outer.items() if k != "data"},
             "body": body,
         }
+
+    @staticmethod
+    def _parse_ios_binary_frame(plaintext: bytes) -> dict[str, Any]:
+        """iOS バイナリフレームを解析する.
+
+        構造: CBOR bstr(9) header + CBOR bstr(N) gzip payload + trailer
+        """
+        from io import BytesIO
+
+        buf = BytesIO(plaintext)
+        result: dict[str, Any] = {}
+
+        try:
+            # 先頭の bstr(9) ヘッダーを読む
+            header_item = cbor2.CBORDecoder(buf).decode()
+            if isinstance(header_item, bytes):
+                result["_frame_header"] = header_item.hex()
+
+            # 次の 1 バイト (type/delimiter)
+            pos = buf.tell()
+            if pos < len(plaintext):
+                frame_type = plaintext[pos]
+                result["_frame_type"] = frame_type
+                buf.seek(pos + 1)
+
+            # 次の CBOR bstr = gzip 圧縮データ
+            if buf.tell() < len(plaintext):
+                compressed = cbor2.CBORDecoder(buf).decode()
+                if isinstance(compressed, bytes) and len(compressed) >= 2:
+                    if compressed[:2] == b"\x1f\x8b":
+                        try:
+                            raw_data = gzip.decompress(compressed)
+                        except Exception:
+                            raw_data = compressed
+                    else:
+                        raw_data = compressed
+
+                    # JSON パース
+                    try:
+                        body = json.loads(raw_data)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        try:
+                            body = cbor2.loads(raw_data)
+                        except Exception:
+                            body = {
+                                "_raw_bytes": raw_data[:200].hex(),
+                                "_size": len(raw_data),
+                            }
+
+                    result["body"] = body
+
+            # トレーラー (sequence number 等)
+            trailer_pos = buf.tell()
+            if trailer_pos < len(plaintext):
+                trailer = plaintext[trailer_pos:]
+                result["_trailer"] = trailer.hex()
+
+        except Exception as e:
+            result["_parse_error"] = str(e)
+            result["_raw_bytes"] = plaintext.hex()
+
+        return result
