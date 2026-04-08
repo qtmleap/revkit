@@ -22,8 +22,7 @@ graph TD
         DH_P --> DH_GEN["DH 鍵ペア生成"]
         DH_G --> DH_GEN
         DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
-        DH_PUB --> KEY336_REQ["key 33.6 リクエスト 464B"]
-        RSA_BOOT -.->|不明| KEY336_REQ
+        DH_PUB -.->|変換方法不明| KEY336_REQ["key 33.6 リクエスト 144B/352B"]
         KEY336_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
         SERVER --> DH_RESP["appboot レスポンス key 33"]
         ECC_BOOT -.->|署名検証?| DH_RESP
@@ -297,6 +296,7 @@ MSL メッセージには2種類の HMAC 署名が付与される:
 graph TD
     Q1["48B 鍵の生成メカニズム"]
     Q2["bootstrap_key の導出元"]
+    Q3["key 33.6 の構成方法"]
 
     Q1 --> H1["AES-256 ホワイトボックスチェーンの出力?"]
     Q1 --> H2["入力は乱数? デバイス固有値?"]
@@ -305,14 +305,20 @@ graph TD
     Q2 --> H4["仮説A: ホワイトボックスチェーン出力"]
     Q2 --> H5["仮説B: FairPlay / デバイストークン由来"]
 
+    Q3 --> H6["RSA 暗号化は未使用 (実証済み)"]
+    Q3 --> H7["繰り返しパターンあり → テーブル展開形式?"]
+    Q3 --> H8["サイズ: 144B or 352B (DH 公開鍵 128B から拡張)"]
+
     style Q1 fill:#fa0,stroke:#a60,color:#fff
     style Q2 fill:#fa0,stroke:#a60,color:#fff
+    style Q3 fill:#fa0,stroke:#a60,color:#fff
 ```
 
 ### 解決済みの疑問
 
 - ~~enc_key_0 / sign_key_0 の由来~~ → HMAC-SHA384(48B鍵, 0x00 || DH共有秘密) で導出 (Phase 2 で確認)
 - ~~HKDF で導出?~~ → NFWebCrypto に HKDF エクスポートなし。HMAC-SHA384 を使用
+- ~~kAppBootKey で DH 公開鍵を RSA 暗号化?~~ → RSA_public_encrypt / EVP_PKEY_encrypt ともに未呼び出し
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
 - ~~PSK 2箇所目直前の 256-bit データ~~ → 調査優先度低 (鍵フローに影響なし)
 
