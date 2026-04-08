@@ -1,117 +1,119 @@
 # revkit
 
-iOS / Android アプリのリバースエンジニアリングツールキット。
+[![日本語](https://img.shields.io/badge/lang-日本語-blue)](docs/README.ja.md)
 
-- **iOS Tweak 開発** — Theos/Orion による Substrate Tweak のビルド・デプロイ (arm64, rootless)
-- **Frida フック** — iOS / Android アプリのランタイム解析・動的インストルメンテーション
-- **mitmproxy** — HTTPS トラフィックキャプチャ・プロトコルデコード
-- **バイナリ解析** — Ghidra, radare2, jadx, ipsw による APK / IPA の静的解析
+A reverse-engineering toolkit for iOS and Android applications.
 
-## 構成
+- **iOS Tweak Development** — Build and deploy Substrate tweaks via Theos/Orion (arm64, rootless)
+- **Frida Hooks** — Runtime analysis and dynamic instrumentation for iOS / Android apps
+- **mitmproxy** — Programmable HTTPS traffic capture and protocol decoding
+- **Binary Analysis** — Static analysis of APK / IPA binaries with Ghidra, radare2, jadx, ipsw
+
+## Repository Structure
 
 ```
 .
 ├── packages/
-│   ├── frida/                  # Frida フックスクリプト (TypeScript → JS)
+│   ├── frida/                  # Frida hook scripts (TypeScript → JS)
 │   │   └── src/
-│   │       ├── ios/            #   iOS 用フック (ObjC/C++)
-│   │       ├── android/        #   Android 用フック (Java/JNI)
-│   │       └── common/         #   共通ユーティリティ
-│   ├── mitmproxy/              # mitmproxy アドオン
-│   └── tweak/                  # iOS Tweak (Theos/Orion)
+│   │       ├── ios/            #   iOS hooks (ObjC/C++)
+│   │       ├── android/        #   Android hooks (Java/JNI)
+│   │       └── common/         #   Shared utilities
+│   ├── mitmproxy/              # mitmproxy addons
+│   └── tweak/                  # iOS Tweaks (Theos/Orion)
 │
-├── tools/                      # Python ユーティリティ
-│   ├── run.py                  #   Frida フック実行ランナー
-│   ├── transformers/           #   ログ変換 (Frida → 統一フォーマット)
+├── tools/                      # Python utilities
+│   ├── run.py                  #   Frida hook runner
+│   ├── transformers/           #   Log transformers (Frida → unified format)
 │   └── ...
 │
-├── handlers/                   # Objection ハンドラ (CommonCrypto, Security 等)
-├── docs/                       # 解析結果・仕様書
-├── assets/                     # IPA/APK バイナリ (.gitignore)
-├── raws/                       # Frida 生キャプチャログ (.gitignore)
-└── logs/                       # 変換済みログ (.gitignore)
+├── handlers/                   # Objection handlers (CommonCrypto, Security, etc.)
+├── docs/                       # Analysis results & specifications
+├── assets/                     # IPA/APK binaries (.gitignore)
+├── raws/                       # Raw Frida capture logs (.gitignore)
+└── logs/                       # Transformed logs (.gitignore)
 ```
 
-## 開発環境
+## Development Environment
 
-DevContainer で構築済み。`Rebuild Container` で全ツールが揃う。
+Everything is pre-configured in a DevContainer. Run `Rebuild Container` to get all tools ready.
 
-### ランタイム
+### Runtimes
 
-| ツール | 用途 |
-|---|---|
-| Python 3.12 (uv) | ユーティリティ、ログ変換、解析スクリプト |
-| Node.js 25.x | Frida スクリプトのビルド (frida-compile) |
-| Bun | Chrome 拡張のビルド |
-| Frida 17.x | 動的インストルメンテーション |
-| mitmproxy | プログラマブル HTTPS プロキシ |
+| Tool | Purpose |
+|------|---------|
+| Python 3.12 (uv) | Utilities, log transformation, analysis scripts |
+| Node.js 25.x | Frida script build (frida-compile) |
+| Bun | Chrome extension build |
+| Frida 17.x | Dynamic instrumentation |
+| mitmproxy | Programmable HTTPS proxy |
 
-### リバースエンジニアリング
+### Reverse Engineering Tools
 
-| ツール | 用途 |
-|---|---|
-| radare2 | ARM64 逆アセンブル・バイナリ解析 |
-| Ghidra (headless) | 擬似コード生成・関数解析 |
-| jadx | Android APK → Java 逆コンパイル |
-| apktool | Android APK リソース展開・smali |
-| ipsw | iOS Mach-O 解析・ObjC/Swift クラスダンプ |
-| lief (Python) | Mach-O/ELF バイナリパーサー |
-| capstone (Python) | ARM64 ディスアセンブラ |
-| unicorn (Python) | CPU エミュレーション |
-| pywidevine (Python) | Widevine DRM 解析 |
+| Tool | Purpose |
+|------|---------|
+| radare2 | ARM64 disassembly & binary analysis |
+| Ghidra (headless) | Pseudocode generation & function analysis |
+| jadx | Android APK → Java decompilation |
+| apktool | Android APK resource extraction & smali |
+| ipsw | iOS Mach-O analysis, ObjC/Swift class dump |
+| lief (Python) | Mach-O/ELF binary parser |
+| capstone (Python) | ARM64 disassembler |
+| unicorn (Python) | CPU emulation |
+| pywidevine (Python) | Widevine DRM analysis |
 
-### iOS Tweak 開発
+### iOS Tweak Development
 
-| ツール | 用途 |
-|---|---|
-| Theos | Tweak ビルドシステム |
-| Orion | Swift Tweak フレームワーク |
-| Swift 5.8 (cross-compile) | iOS 向けクロスコンパイル |
-| iOS SDK 15.6 / 16.5 | ビルドターゲット |
+| Tool | Purpose |
+|------|---------|
+| Theos | Tweak build system |
+| Orion | Swift tweak framework |
+| Swift 5.8 (cross-compile) | Cross-compilation for iOS |
+| iOS SDK 15.6 / 16.5 | Build targets |
 
-## macOS ホスト設定
+## macOS Host Setup
 
-DevContainer は Docker Desktop の Linux VM 内で動作するため、iOS デバイスと直接通信できない。USB 接続の iproxy を経由することで、WiFi の IP 変更やネットワーク不安定の影響を受けずに接続できる。
+The DevContainer runs inside Docker Desktop's Linux VM and cannot communicate with iOS devices directly. Use iproxy over USB to avoid issues with Wi-Fi IP changes or network instability.
 
-### 1. iproxy のインストール (macOS)
+### 1. Install iproxy (macOS)
 
 ```bash
 brew install libimobiledevice
 ```
 
-### 2. iproxy の起動 (macOS)
+### 2. Start iproxy (macOS)
 
-iPhone を USB で接続した状態で:
+With the iPhone connected via USB:
 
 ```bash
 iproxy 2222 22 &
 iproxy 27042 27042 &
 ```
 
-- `2222 → 22`: SSH 接続用
-- `27042 → 27042`: Frida 接続用
+- `2222 → 22`: SSH
+- `27042 → 27042`: Frida
 
-### 接続経路
+### Connection Diagram
 
-| 用途 | 方向 | 経路 |
-|------|------|------|
-| **SSH** | コンテナ → デバイス | `ssh iPhone` → `host.docker.internal:2222` → iproxy (USB) → デバイス:22 |
-| **Frida** | コンテナ → デバイス | `frida -H host.docker.internal` → iproxy (USB) → デバイス:27042 |
-| **mitmproxy** | デバイス → コンテナ | デバイスの WiFi プロキシを macOS の LAN IP:9080 に設定 |
+| Purpose | Direction | Route |
+|---------|-----------|-------|
+| **SSH** | Container → Device | `ssh iPhone` → `host.docker.internal:2222` → iproxy (USB) → device:22 |
+| **Frida** | Container → Device | `frida -H host.docker.internal` → iproxy (USB) → device:27042 |
+| **mitmproxy** | Device → Container | Set device Wi-Fi proxy to macOS LAN IP:9080 |
 
-## 使い方
+## Usage
 
-### Frida フック
+### Frida Hooks
 
 ```bash
-# iOS (objection 経由で spawn)
+# iOS (spawn via objection)
 uv run python tools/run.py packages/frida/<script>.js
 
-# Android (spawn モード)
+# Android (spawn mode)
 uv run python tools/run.py --android packages/frida/<script>.js
 ```
 
-`.env` にデバイスのホストを設定 (iproxy 経由の場合は `host.docker.internal`):
+Set device hosts in `.env` (use `host.docker.internal` when going through iproxy):
 
 ```
 IOS_HOST=host.docker.internal
@@ -120,63 +122,63 @@ ANDROID_HOST=192.168.x.x
 
 ### mitmproxy
 
-#### デバイス側の設定
+#### Device Setup
 
-1. デバイスの WiFi プロキシを macOS の LAN IP、ポート `9080` に設定
-2. デバイスのブラウザで `http://mitm.it` にアクセスし、CA 証明書をインストール
-   - iOS: 設定 → 一般 → VPN とデバイス管理 → mitmproxy をインストール → 設定 → 一般 → 情報 → 証明書信頼設定 で有効化
+1. Set the device's Wi-Fi proxy to the macOS LAN IP, port `9080`
+2. Open `http://mitm.it` on the device and install the CA certificate
+   - iOS: Settings → General → VPN & Device Management → install mitmproxy → Settings → General → About → Certificate Trust Settings → enable
 
-#### 起動
+#### Launch
 
 ```bash
 uv run mitmdump --listen-port 9080 --set block_global=false \
     -s packages/mitmproxy/<addon>.py
 ```
 
-アドオンは `packages/mitmproxy/` に配置。
+Addons are located in `packages/mitmproxy/`.
 
-### iOS Tweak (Theos)
+### iOS Tweaks (Theos)
 
 ```bash
-# ビルド
-make -C packages/tweak/<tweak名>
+# Build
+make -C packages/tweak/<tweak>
 
-# パッケージ (.deb 生成)
-make -C packages/tweak/<tweak名> package
+# Package (.deb)
+make -C packages/tweak/<tweak> package
 
-# デバイスへのインストール
-make -C packages/tweak/<tweak名> package install THEOS_DEVICE_IP=<デバイスIP>
+# Install to device
+make -C packages/tweak/<tweak> package install THEOS_DEVICE_IP=<device-ip>
 ```
 
-### バイナリ解析
+### Binary Analysis
 
 ```bash
-# iOS: ObjC/Swift クラスダンプ
+# iOS: ObjC/Swift class dump
 ipsw macho info <binary> --class-dump
 
-# Android: APK 逆コンパイル
+# Android: APK decompilation
 jadx -d /tmp/out <apk>
 
-# Ghidra ヘッドレス解析
+# Ghidra headless analysis
 analyzeHeadless /tmp/project name -import <binary>
 ```
 
-## Claude Code スキル
+## Claude Code Skills
 
-本プロジェクト固有のスラッシュコマンド。Claude Code 内で使用できる。
+Project-specific slash commands available inside Claude Code.
 
-| コマンド | 説明 |
-|---------|------|
-| `/compose` | Agent Teams のリーダーとしてチームを編成し、計画策定→承認→実行のワークフローを開始する |
+| Command | Description |
+|---------|-------------|
+| `/compose` | Assemble an Agent Team as leader and run the plan → approve → execute workflow |
 
-### エージェント
+### Agents
 
-`/compose` から呼び出される専門エージェント。
+Specialized agents invoked by `/compose`.
 
-| エージェント | 担当 |
-|-------------|------|
-| `tweak-engineer` | iOS Tweak 開発 (Orion/Theos, ElleKit C フック) |
-| `frida-engineer` | Frida フックスクリプト、ランタイム解析 |
-| `mitmproxy-engineer` | mitmproxy アドオン、トラフィックキャプチャ |
-| `python-engineer` | Python ユーティリティ、デコーダー、データ処理 |
-| `log-monitor` | Frida/mitmproxy/Tweak のログ監視・レポート |
+| Agent | Responsibility |
+|-------|---------------|
+| `tweak-engineer` | iOS Tweak development (Orion/Theos, ElleKit C hooks) |
+| `frida-engineer` | Frida hook scripts, runtime analysis |
+| `mitmproxy-engineer` | mitmproxy addons, traffic capture |
+| `python-engineer` | Python utilities, decoders, data processing |
+| `log-monitor` | Frida/mitmproxy/Tweak log monitoring & reporting |
