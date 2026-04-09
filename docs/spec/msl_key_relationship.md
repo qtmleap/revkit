@@ -7,109 +7,120 @@
 
 ## 1. 鍵の全体関係
 
+### Phase 0: MGK 生成 (解明済み)
+
 ```mermaid
-graph TD
-    subgraph NFWebCrypto
-        PSK["PSK 128-bit"]
-        NONCE_HARD["nonce 128-bit"]
-        DH_P["DH p 1024-bit"]
-        DH_G["DH g = 5"]
-        TFIT_TBL["TFIT テーブル 199KB"]
-        RSA_BOOT["kAppBootKey RSA-4096"]
-        ECC_BOOT["kAppBootEccKey ECDSA P-256"]
-    end
+graph LR
+    ESN["ESN (デバイス固有)"] --> SHA384_ESN["SHA384"]
+    SHA384_ESN --> TFIT_ECB["TFIT-WB-AES-128-ECB × 3"]
+    TFIT_TBL["TFIT テーブル 199KB"] --> TFIT_ECB
+    TFIT_ECB --> MGK_ENC["MGK key = enc_key_0 128-bit"]
+    TFIT_ECB --> MGK_SIGN["MGK vector = sign_key_0 256-bit"]
 
-    subgraph Phase0["Phase 0: MGK 生成 -- 解明済み"]
-        ESN["ESN (デバイス固有)"] --> SHA384_ESN["SHA384"]
-        SHA384_ESN --> TFIT_ECB["TFIT-WB-AES-128-ECB × 3"]
-        TFIT_TBL --> TFIT_ECB
-        TFIT_ECB --> MGK_ENC["MGK key = enc_key_0 128-bit"]
-        TFIT_ECB --> MGK_SIGN["MGK vector = sign_key_0 256-bit"]
-    end
-
-    subgraph Phase1["Phase 1: appboot 鍵交換"]
-        DH_P --> DH_GEN["DH 鍵ペア生成"]
-        DH_G --> DH_GEN
-        DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
-        DH_PUB -.->|変換方法不明| KEY336_REQ["key 33.6 リクエスト 144B/352B"]
-        KEY336_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
-        SERVER --> DH_RESP["appboot レスポンス key 33"]
-        ECC_BOOT -.->|署名検証?| DH_RESP
-    end
-
-    subgraph Phase2["Phase 2: 初期セッション鍵導出 -- 解明済み"]
-        DH_RESP -->|サーバー DH 公開鍵| DH_COMPUTE["DH_compute_key"]
-        DH_GEN -->|クライアント DH 秘密鍵| DH_COMPUTE
-        DH_COMPUTE --> DH_SHARED["DH 共有秘密 1024-bit"]
-        KDF -->|session_bind 上位16B| SHA384_OP["SHA384"]
-        SHA384_OP --> KEY48["48B 鍵 384-bit"]
-        KEY48 -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
-        DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
-        PHASE2_KDF --> NEW_ENC["new enc_key 128-bit"]
-        PHASE2_KDF --> NEW_SIGN["new sign_key 256-bit"]
-    end
-
-    subgraph Phase3["Phase 3: KDF 鍵更新 -- 解明済み"]
-        PSK -->|HMAC key| KDF["KDF HMAC-SHA256 chain"]
-        MGK_ENC -->|enc_key_0| KDF
-        MGK_SIGN -->|sign_key_0| KDF
-        NONCE_HARD -->|入力| KDF
-        KDF --> ENC1["enc_key_1 128-bit"]
-        KDF --> SIGN1["sign_key_1 256-bit"]
-    end
-
-    subgraph Phase4["Phase 4: ログイン鍵配送 -- 解明済み"]
-        SERVER2["Netflix サーバー"] -->|key_response_data| KRD["暗号化された新鍵"]
-        ENC1 -->|AES-128-CBC 復号鍵| DECRYPT["AES-CBC 復号"]
-        KRD --> DECRYPT
-        DECRYPT --> ENC2["enc_key_2 128-bit"]
-        DECRYPT --> SIGN2["sign_key_2 256-bit"]
-    end
-
-    subgraph Phase5["Phase 5: MSL 通信"]
-        ENC2 -->|暗号化 復号| MSL_ENC["AES-128-CBC"]
-        SIGN2 -->|署名 検証| MSL_SIGN["HMAC-SHA256"]
-        NEW_SIGN -->|= bootstrap_key| MSL_SIGN2["HMAC-SHA256 ペイロード全体署名"]
-        MSL_ENC --> PAYLOAD["manifest / license / logblob"]
-        MSL_SIGN --> PAYLOAD
-        MSL_SIGN2 --> PAYLOAD
-    end
-
-    %% 赤: バイナリ埋め込み
-    style PSK fill:#e74c3c,stroke:#c0392b,color:#fff
-    style NONCE_HARD fill:#e74c3c,stroke:#c0392b,color:#fff
-    style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
-    style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
-    style RSA_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
-    style ECC_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
-
-    %% 青: サーバーレスポンス由来
-    style SERVER fill:#3498db,stroke:#2980b9,color:#fff
-    style SERVER2 fill:#3498db,stroke:#2980b9,color:#fff
-    style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
-    style KRD fill:#3498db,stroke:#2980b9,color:#fff
-    style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
-    style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
-
-    %% 緑: 解明済み (Python で計算可能)
-    style KDF fill:#2ecc71,stroke:#27ae60,color:#fff
-    style PHASE2_KDF fill:#2ecc71,stroke:#27ae60,color:#fff
-    style DH_COMPUTE fill:#2ecc71,stroke:#27ae60,color:#fff
+    style TFIT_TBL fill:#e74c3c,stroke:#c0392b,color:#fff
     style MGK_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
     style MGK_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
-    style NEW_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
-    style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
-    style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SIGN1 fill:#2ecc71,stroke:#27ae60,color:#fff
-    style DECRYPT fill:#2ecc71,stroke:#27ae60,color:#fff
-    style DH_SHARED fill:#2ecc71,stroke:#27ae60,color:#fff
-    style KEY48 fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SHA384_OP fill:#2ecc71,stroke:#27ae60,color:#fff
     style SHA384_ESN fill:#2ecc71,stroke:#27ae60,color:#fff
     style TFIT_ECB fill:#2ecc71,stroke:#27ae60,color:#fff
+```
 
-    %% オレンジ: 由来不明
+### Phase 1: appboot 鍵交換
+
+```mermaid
+graph LR
+    DH_P["DH p 1024-bit"] --> DH_GEN["DH 鍵ペア生成"]
+    DH_G["DH g = 5"] --> DH_GEN
+    DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
+    DH_PUB -.->|変換方法不明| KEY336_REQ["key 33.6 リクエスト 144B/352B"]
+    KEY336_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
+    SERVER --> DH_RESP["appboot レスポンス key 33"]
+    ECC_BOOT["kAppBootEccKey ECDSA P-256"] -.->|署名検証?| DH_RESP
+
+    style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
+    style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
+    style ECC_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
+    style SERVER fill:#3498db,stroke:#2980b9,color:#fff
+    style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
     style KEY336_REQ fill:#fa0,stroke:#a60,color:#fff
+```
+
+### Phase 2: 初期セッション鍵導出 (解明済み)
+
+```mermaid
+graph LR
+    DH_RESP["appboot レスポンス key 33"] -->|サーバー DH 公開鍵| DH_COMPUTE["DH_compute_key"]
+    DH_PRIV["クライアント DH 秘密鍵"] -->|Phase 1 で生成| DH_COMPUTE
+    DH_COMPUTE --> DH_SHARED["DH 共有秘密 1024-bit"]
+    SB_IN["session_bind 上位16B"] -->|Phase 3 KDF 中間値| SHA384_OP["SHA384"]
+    SHA384_OP --> KEY48["48B 鍵 384-bit"]
+    KEY48 -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
+    DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
+    PHASE2_KDF --> NEW_ENC["new enc_key 128-bit"]
+    PHASE2_KDF --> NEW_SIGN["new sign_key 256-bit"]
+
+    style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
+    style DH_COMPUTE fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DH_SHARED fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SHA384_OP fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KEY48 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style PHASE2_KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style NEW_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
+    style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+```
+
+### Phase 3: KDF 鍵更新 (解明済み)
+
+```mermaid
+graph LR
+    PSK["PSK 128-bit"] -->|HMAC key| KDF["KDF HMAC-SHA256 chain"]
+    MGK_ENC["enc_key_0 128-bit"] -->|Phase 0 出力| KDF
+    MGK_SIGN["sign_key_0 256-bit"] -->|Phase 0 出力| KDF
+    NONCE["nonce 128-bit"] -->|入力| KDF
+    KDF --> ENC1["enc_key_1 128-bit"]
+    KDF --> SIGN1["sign_key_1 256-bit"]
+    KDF -->|session_bind| SB["→ Phase 2 へ"]
+
+    style PSK fill:#e74c3c,stroke:#c0392b,color:#fff
+    style NONCE fill:#e74c3c,stroke:#c0392b,color:#fff
+    style MGK_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
+    style MGK_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SIGN1 fill:#2ecc71,stroke:#27ae60,color:#fff
+```
+
+### Phase 4: ログイン鍵配送 (解明済み)
+
+```mermaid
+graph LR
+    SERVER["Netflix サーバー"] -->|key_response_data| KRD["暗号化された新鍵"]
+    ENC1["enc_key_1 128-bit"] -->|AES-128-CBC 復号鍵| DECRYPT["AES-CBC 復号"]
+    KRD --> DECRYPT
+    DECRYPT --> ENC2["enc_key_2 128-bit"]
+    DECRYPT --> SIGN2["sign_key_2 256-bit"]
+
+    style SERVER fill:#3498db,stroke:#2980b9,color:#fff
+    style KRD fill:#3498db,stroke:#2980b9,color:#fff
+    style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DECRYPT fill:#2ecc71,stroke:#27ae60,color:#fff
+    style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
+    style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
+```
+
+### Phase 5: MSL 通信
+
+```mermaid
+graph LR
+    ENC2["enc_key_2 128-bit"] -->|暗号化 復号| MSL_ENC["AES-128-CBC"]
+    SIGN2["sign_key_2 256-bit"] -->|署名 検証| MSL_SIGN["HMAC-SHA256"]
+    NEW_SIGN["new sign_key = bootstrap_key"] -->|ペイロード全体署名| MSL_SIGN2["HMAC-SHA256"]
+    MSL_ENC --> PAYLOAD["manifest / license / logblob"]
+    MSL_SIGN --> PAYLOAD
+    MSL_SIGN2 --> PAYLOAD
+
+    style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
+    style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
+    style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### 凡例
