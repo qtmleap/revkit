@@ -200,49 +200,59 @@ graph LR
 
 ---
 
-## 2. 鍵のライフサイクル
+## 2. 鍵のライフサイクル (実行順)
 
 ```mermaid
 %%{init: {'theme': 'dark'}}%%
 sequenceDiagram
     participant B as NFWebCrypto
-    participant C as クライアント
-    participant S as Netflix サーバー
+    participant C as Client
+    participant S as Netflix Server
 
-    Note over B: PSK, nonce, TFIT テーブルはハードコード
+    Note over B: Hardcoded: PSK, nonce, TFIT Tables, DH p/g
 
     rect rgba(46, 204, 113, 0.25)
-    Note over B: Phase 0: MGK 生成 -- 解明済み
-    Note over B: SHA384(ESN) → TFIT-WB-AES-128-ECB × 3
-    Note over B: → enc_key_0 = MGK key, sign_key_0 = MGK vector
-    end
-
-    rect rgba(70, 130, 200, 0.25)
-    Note over C,S: Phase 1-2: 起動時 -- 解明済み
-    Note over C: Phase 3 KDF → session_bind[:16] → SHA384 → 48B鍵
-    C->>S: appboot リクエスト (DH 公開鍵含む)
-    S->>C: appboot レスポンス (サーバー DH 公開鍵含む)
-    Note over C: DH_compute_key → 共有秘密 1024-bit
-    Note over C: HMAC-SHA384(48B鍵, 0x00 || 共有秘密)
-    Note over C: → new enc_key, new sign_key
+    Note over B: Phase 0: MGK Generation (once per install)
+    Note over B: SHA384(ESN) → TFIT-WB-AES-128-ECB x3
+    Note over B: → enc_key_0, sign_key_0
     end
 
     rect rgba(200, 170, 50, 0.25)
-    Note over C: Phase 3: KDF 鍵更新 -- 解明済み
-    Note over C: KDF で enc_key_1, sign_key_1 を導出
+    Note over C: Phase 3: KDF Key Renewal (before DH exchange)
+    Note over C: HMAC-SHA256 chain(PSK, enc_key_0, sign_key_0, nonce)
+    Note over C: → enc_key_1, sign_key_1, session_bind
+    Note over C: SHA384(session_bind[:16]) → 48B Key
+    end
+
+    rect rgba(70, 130, 200, 0.25)
+    Note over C,S: Phase 1: appboot Key Exchange
+    Note over C: DH_generate_key → Client PubKey, PrivKey
+    Note over C: TFIT-WB-AES-128-ECB x8(PubKey) → key 33.6 plaintext
+    Note over C: XOR(key 33.9 nonce, plaintext) → key 33.6 ciphertext
+    C->>S: appboot request (key 33.6 + key 33.9)
+    S->>C: appboot response (key 33.6 96B + key 33.9)
+    Note over C: Extract Server DH PubKey from response key 33.6
+    end
+
+    rect rgba(100, 200, 150, 0.25)
+    Note over C: Phase 2: Session Key Derivation
+    Note over C: DH_compute_key(Server PubKey, Client PrivKey) → Shared Secret
+    Note over C: HMAC-SHA384(48B Key, 0x00 || Shared Secret)
+    Note over C: → new enc_key [0:16], bootstrap_key [16:48]
     end
 
     rect rgba(60, 170, 90, 0.25)
-    Note over C,S: Phase 4: ログイン鍵配送 -- 解明済み
-    C->>S: MSL リクエスト
+    Note over C,S: Phase 4: Login Key Distribution
+    C->>S: MSL request (encrypted with enc_key_1)
     S->>C: key_response_data
-    Note over C: enc_key_1 で復号 → enc_key_2, sign_key_2
+    Note over C: AES-128-CBC decrypt(enc_key_1) → enc_key_2, sign_key_2
     end
 
     rect rgba(140, 140, 140, 0.2)
-    Note over C,S: Phase 5: ログイン後の通信
-    C->>S: MSL リクエスト
-    S->>C: MSL レスポンス
+    Note over C,S: Phase 5: MSL Communication
+    C->>S: MSL request (AES-128-CBC with enc_key_2, HMAC with sign_key_2)
+    S->>C: MSL response
+    Note over C: Payload-wide HMAC-SHA256 with bootstrap_key
     end
 ```
 
