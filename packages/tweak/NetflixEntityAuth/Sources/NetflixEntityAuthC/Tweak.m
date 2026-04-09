@@ -222,7 +222,9 @@ static unsigned char *hook_HMAC(const EVP_MD *evp_md,
                                  unsigned char *md, unsigned int *md_len) {
     unsigned char *ret = orig_HMAC(evp_md, key, key_len, d, n, md, md_len);
 
-    if (!g_inHook && ret) {
+    // NOTE: g_inHook check disabled to capture apphmac HMAC (computed inside getAuthData
+    // on a potentially different thread where g_inHook may be set by another hook)
+    if (ret) {
         unsigned int outLen = (md_len && *md_len > 0) ? *md_len : 0;
 
         // Determine actual output length: if md_len not set, check EVP_MD output size
@@ -1040,6 +1042,46 @@ static void installMslClientHooks(void) {
                    (void *)hook_FpsMgkAppIdAuthData_ctor,
                    (void **)&orig_FpsMgkAppIdAuthData_ctor);
     file_log(g_log_general, @"[NFXEntityAuth] FpsMgkAppIdAuthData ctor hooked");
+
+    // Hook getAuthData at offset 0x284bc — dumps CBOR output to capture apphmac (32B)
+    // getAuthData(shared_ptr<MslEncoderFactory>, MslEncoderFormat const&) const
+    // Returns shared_ptr<MslObject> via sret (x8).
+    // We hook it to capture the raw CBOR bytes AFTER the original runs.
+    //
+    // Simpler approach: hook the hmac vtable call inside getAuthData.
+    // NFWebCrypto::hmac at vtable[0x58] = NFWebCrypto offset 0xdf78.
+    // This function calls OpenSSL HMAC internally but for apphmac specifically.
+    // Instead, let's hook NFWebCrypto::hmacSign at 0xe640 which is the inner HMAC.
+    //
+    // Actually: hook AppleWebCrypto::hmac(uint, Variant, DataBuffer, DataBuffer&) at 0xdf78
+    // and capture inputs/outputs directly.
+    {
+        uint32_t nfwcImgCount = _dyld_image_count();
+        uintptr_t nfwcBase2 = 0;
+        for (uint32_t i = 0; i < nfwcImgCount; i++) {
+            const char *name = _dyld_get_image_name(i);
+            if (name && strstr(name, "NFWebCrypto.framework/NFWebCrypto")) {
+                nfwcBase2 = (uintptr_t)_dyld_get_image_header(i);
+                break;
+            }
+        }
+        if (nfwcBase2) {
+            // Hook hmacSign at 0xe640 — this is called internally by hmac(0xdf78)
+            // Signature: void hmacSign(const void *key, int key_len,
+            //                          const unsigned char *data, size_t data_len,
+            //                          unsigned char *out, unsigned int *out_len)
+            // Actually at 0xe640 the RE identified it as AppleWebCrypto::hmacSign
+            // Let's hook it to catch ALL HMAC calls including the internal apphmac one.
+            //
+            // Better: just save the full entity_auth_data CBOR from the appboot blob.
+            // The blob_000_data.bin already contains the appboot request body.
+            // We can parse it to extract the CBOR entity_auth_data.
+            file_log(g_log_general,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth] NFWebCrypto::hmac at 0x%lx (not hooked — use blob capture instead)",
+                      (unsigned long)(nfwcBase2 + 0xdf78)]);
+        }
+    }
 
     g_mslHooked = YES;
 }
