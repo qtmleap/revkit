@@ -163,15 +163,17 @@ aa1b6089 d6c0b561 a8e520e7 96de27df
 | **Python 再現** | **不可** — NRM サービスとの通信プロトコルが未解明 |
 | **追加調査が必要** | ★ 有効期限の有無。一度取得した値がどのくらい再利用可能か。NRM API の仕様 |
 
-### apphmac (32B) → **解決: デバイス ID トークン (暗号計算ではない)**
+### apphmac (32B) → **完全解決: サーバー発行の deviceIdToken**
 
 | 項目 | 値 |
 |------|-----|
-| **正体** | `[device deviceIdToken]` — NFWebCrypto/CDM 層が生成する不透明トークン |
-| **固定/可変** | **セッション可変** — セッション鍵更新時に変化 |
-| **再利用可否** | **同一セッション内なら可** |
-| **Python 再現** | **不可** — CDM/Secure Enclave 由来。Tweak でキャプチャした値を渡す |
-| **追加調査** | 不要 — 導出元確定済み |
+| **正体** | Netflix サーバーが HTTP レスポンスヘッダ `x-netflix-deviceidtoken` で配信 |
+| **永続化** | `NFSharedStore` App Group コンテナ (キー `DEVICE_ID_TOKEN`) |
+| **初回状態** | **nil** — サーバー未発行のため空で送信可能 |
+| **固定/可変** | セッション可変 — サーバーが認証状態変更時に新値を発行 |
+| **再利用可否** | **可** — キャッシュして以降のリクエストで再利用 |
+| **Python 再現** | **可** — 初回 nil → レスポンスヘッダから取得 → キャッシュ |
+| **追加調査** | 不要 |
 
 **2026-04-09 最終解明: apphmac = deviceIdToken (暗号計算ではない)**
 
@@ -313,7 +315,7 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 
 | 値 | 固定/可変 | 再利用 | 状態 | 備考 |
 |----|----------|--------|------|------|
-| **apphmac** (32B) | DRM 層で永続 | **長期再利用可** | **解決: deviceIdToken** | CDM/Secure Enclave 由来。Keychain 削除後も不変 |
+| **apphmac** (32B) | サーバー発行 | **長期再利用可** | **完全解決** | サーバーが `x-netflix-deviceidtoken` ヘッダで配信。初回は nil、レスポンスから取得。Python 単体で可 |
 | **devicetoken** (216B) | DRM 層で永続 | **長期再利用可** | **解決: DRM トークン** | CDM/FairPlay 由来。Keychain 削除後も不変 |
 | ~~**appboot sign key**~~ | — | — | **解決** | Keychain キャッシュ。初回は sign_key_1 で署名 |
 
@@ -321,27 +323,27 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 >
 > **全ての未知の値が解明された:**
 >
-> - **apphmac** = `[device deviceIdToken]` — 暗号計算ではなくデバイス ID トークン。
->   フィールド名がミスリーディングだが、CDM/Secure Enclave 由来の不透明 32B トークン。
->   Tweak でキャプチャした値をそのまま渡す。
+> - **apphmac (deviceIdToken)** = Netflix サーバーが `x-netflix-deviceidtoken` ヘッダで配信。
+>   初回 appboot では nil で送信可能。レスポンスから取得してキャッシュ。
+>   **Python 単体で取得可能 — Tweak 不要。**
 > - **appboot sign key** = 前回セッションの Phase 2 sign key (Keychain キャッシュ)。
 >   フレッシュ appboot では sign_key_1 で署名。
-> - **devicetoken** = NRM サービスから取得した 216B protobuf。
->   Tweak でキャプチャした値をそのまま渡す。
+> - **devicetoken** = DRM/CDM 層に永続化された 216B protobuf。
+>   Tweak でキャプチャした値をパラメータとして渡す。
 >
 > **entity_auth_data の CBOR 構造 (完全確定):**
 > ```
 > key 35: {
->   "apphmac": bytes(32B),       ← deviceIdToken (CDM 由来)
+>   "apphmac": bytes(32B),       ← サーバー発行 deviceIdToken (初回 nil 可)
 >   "appid": "a2becfec-...",     ← 固定
 >   "appkeyversion": 1,          ← 固定
->   "devicetoken": bytes(216B),  ← NRM トークン
+>   "devicetoken": bytes(216B),  ← DRM 層永続トークン
 >   3: "NFAPPL-02-IPHONE9=1-..." ← Full ESN
 > }
 > key 30: "MGK_APPID"            ← entity auth scheme 名
 > ```
 >
-> Python 実装に必要な全ての値:
-> - **計算可能**: MGK, Phase 3 KDF, DH, Phase 2 KDF, 署名検証鍵 (全てバイナリ定数+ESN)
-> - **1回キャプチャ**: ESN (デバイス固有、永続), apphmac/deviceIdToken, devicetoken/NRM token
-> - **これら3つのキャプチャ値をパラメータとして渡せば、Python で appboot → MSL 認証が実行可能**
+> **Python 実装に必要な値:**
+> - **計算可能**: MGK, Phase 3 KDF, DH, Phase 2 KDF, 署名検証鍵, deviceIdToken (全てバイナリ定数+ESN+サーバー応答)
+> - **1回キャプチャ**: ESN (デバイス固有、永続), devicetoken (216B DRM トークン)
+> - **ESN + devicetoken の 2 つをパラメータとして渡せば、Python で appboot → MSL 認証が実行可能**

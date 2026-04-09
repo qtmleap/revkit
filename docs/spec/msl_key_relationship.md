@@ -498,14 +498,32 @@ key 34 (entity_auth_data): {
 | 項目 | 値 |
 |------|-----|
 | サイズ | 32B |
-| 生成元 | NFWebCrypto/CDM 層 (`[device deviceIdToken]`) |
-| 設定パス | `_updateEntityAuthDeviceIdToken` → `setApphmac()` → `this+0xe8` |
-| 可変性 | セッション可変 — セッション鍵更新時に変化 |
-| Python 再現 | **不可** — CDM/Secure Enclave 由来の不透明トークン |
-| 取得方法 | Tweak でキャプチャ (`FpsMgkAppIdAuthData` コンストラクタ x5) |
+| 生成元 | **Netflix サーバー** — HTTP レスポンスヘッダ `x-netflix-deviceidtoken` |
+| 永続化 | `NFSharedStore.defaultContainer` (App Group コンテナ `com.netflix.NFSharedStore`) キー `"DEVICE_ID_TOKEN"` |
+| 初回状態 | **nil** — 初回 appboot 時はサーバー未発行のため空 |
+| 可変性 | セッション可変 — サーバーが認証状態変更時に新しい値を発行 |
+| Python 再現 | **可** — 初回 nil で送信 → レスポンスヘッダから取得 → キャッシュ |
+
+**読み込みパス** (アプリ起動時):
+```
+NFSharedStore.defaultContainer
+  → containerDataForKey: @"DEVICE_ID_TOKEN"
+  → NSString initWithData:encoding:UTF8
+  → self._deviceIdToken (IosMslClient +0xb0)
+```
+
+**書き込みパス** (毎 HTTP レスポンス、MslClient @ 0x103acc `processRequest:`):
+```
+response.allHeaderFields[@"x-netflix-deviceidtoken"]
+  → self._deviceIdToken = value
+  → NFSharedStore.defaultContainer.setData:forKey: @"DEVICE_ID_TOKEN"
+```
 
 > **注意**: フィールド名 "apphmac" は誤解を招くが、HMAC 計算値ではない。
-> CDM 層が生成するデバイス識別トークンがそのまま格納される。
+> Netflix サーバーがレスポンスヘッダで配信する不透明トークンをキャッシュしたもの。
+> NFWebCrypto/CDM 層での暗号計算は一切関与しない。
+> Keychain 削除で消えなかったのは App Group コンテナ (サンドボックス外) に
+> 保存されているため。
 
 ### devicetoken (CBOR フィールド名: "devicetoken")
 
@@ -544,14 +562,20 @@ Keychain クリア後のフレッシュ DH セッションで `SHA384(session_bi
 ### Python 実装での扱い
 
 ```python
-# ios_client.py コンストラクタ
+# ios_client.py — deviceIdToken はサーバーから自動取得可能
 client = iOSMslClient(
-    esn="NFAPPL-02-IPHONE9=1-...",        # Tweak でキャプチャ (1回、永続)
-    device_id_token=b"...(32B)...",         # Tweak でキャプチャ (CBOR では "apphmac")
-    device_token=b"...(216B protobuf)...",  # Tweak でキャプチャ (CBOR では "devicetoken")
+    esn="NFAPPL-02-IPHONE9=1-...",          # Tweak でキャプチャ (1回、永続)
+    device_token=b"...(216B protobuf)...",   # Tweak でキャプチャ (CBOR "devicetoken")
+    device_id_token=None,                    # 初回は None (サーバーが発行)
 )
+
+# 1. 初回 appboot: device_id_token=None で送信
+# 2. レスポンスヘッダ x-netflix-deviceidtoken から取得
+# 3. 以降のリクエストに含める
+response = client.appboot()
+client.device_id_token = response.headers["x-netflix-deviceidtoken"]
 ```
 
-> **注意**: 3 つのキャプチャ値はいずれも DRM/CDM 層に永続化されており、
-> Keychain 削除やアプリ再インストールでは変化しない。
-> 一度キャプチャすれば長期間再利用できる可能性が高い。
+> **deviceIdToken は Python 単体で取得可能。** 初回 appboot レスポンスのヘッダから取得し、
+> 以降のリクエストで再利用する。Tweak でのキャプチャは不要。
+> devicetoken (216B NRM protobuf) のみ Tweak キャプチャが必要。
