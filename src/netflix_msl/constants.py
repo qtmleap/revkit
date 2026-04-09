@@ -119,6 +119,11 @@ IOS_SHARKBOOT_KEY_DER = bytes.fromhex(
     "7591de8897f6764ff4ad1fb552"
 )
 
+# key 33.6 session_region の先頭 7B CBOR プレフィックス (iPhone デバイス共通)
+# 実測: 全 352B appboot キャプチャで session_region[0:7] が全セッションで同一。
+# CBOR データストリームの継続部分 — ヘッダーと TFIT データの間のフレーム。
+IOS_KEY336_SESSION_REGION_PREFIX: bytes = bytes.fromhex("6260c8a117cf31")
+
 # key 33.6 scheme_data の固定デバイスヘッダー (128B)
 # 180 個の 352B appboot サンプルのうち 165 個 (標準 iPhone) で共通の定数。
 # plaintext[0:128] の値 (XOR 復号後)。

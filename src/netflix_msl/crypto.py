@@ -25,6 +25,7 @@ from netflix_msl.constants import (
     IOS_KDF_NONCE,
     IOS_KDF_PSK,
     IOS_KEY336_DEVICE_HEADER,
+    IOS_KEY336_SESSION_REGION_PREFIX,
     RSA_KEYPAIR_ID,
 )
 
@@ -477,6 +478,113 @@ class NetflixCrypto:
         mgk = enc_key_0 + sign_key_0  # 48B
         prk = hmac_mod.new(mgk, IOS_KDF_PSK, hashlib.sha256).digest()
         return hmac_mod.new(prk, IOS_KDF_NONCE, hashlib.sha256).digest()
+
+    # ---- key 33.6 session_region 構築 (TFIT-WB-AES-128-ECB) ----
+
+    @staticmethod
+    def build_session_region(
+        dh_pub_key: bytes,
+        enc_key_0: bytes,
+        sign_key_0: bytes,
+    ) -> bytes:
+        """key 33.6 の session_region (172B) を TFIT エミュレーションで構築する.
+
+        session_region (172B) の構成:
+          [0:7]    7B CBOR プレフィックス (iPhone デバイス共通定数)
+          [7:135]  128B TFIT-WB-AES-128-ECB(DH_pub_key) — 8 ブロック × 16B
+          [135:172] 37B MGK テール — TFIT 暗号化 enc_key_0/sign_key_0 と CBOR フレーム
+                    ※ 詳細な CBOR エンコーディングは未解明のためゼロ埋め
+
+        TFIT エミュレーションの前提:
+          - NFWebCrypto.framework バイナリが
+            /tmp/nfwc/Payload/Argo.app/Frameworks/NFWebCrypto.framework/NFWebCrypto
+            に存在する必要がある。
+          - バイナリが存在しない場合は 172B ゼロ埋めにフォールバック (警告表示)。
+
+        Args:
+            dh_pub_key: DH 公開鍵 (128 bytes, big-endian)
+            enc_key_0:  Phase 0 MGK 暗号化鍵 (16 bytes)
+            sign_key_0: Phase 0 MGK 署名鍵 (32 bytes)
+
+        Returns:
+            172 bytes の session_region
+
+        Raises:
+            ValueError: dh_pub_key が 128B でない場合
+            ValueError: enc_key_0 が 16B でない場合
+            ValueError: sign_key_0 が 32B でない場合
+        """
+        if len(dh_pub_key) != 128:
+            raise ValueError(f"dh_pub_key must be 128 bytes, got {len(dh_pub_key)}")
+        if len(enc_key_0) != 16:
+            raise ValueError(f"enc_key_0 must be 16 bytes, got {len(enc_key_0)}")
+        if len(sign_key_0) != 32:
+            raise ValueError(f"sign_key_0 must be 32 bytes, got {len(sign_key_0)}")
+
+        import sys
+        from pathlib import Path
+
+        BINARY_PATH = Path(
+            "/tmp/nfwc/Payload/Argo.app/Frameworks/NFWebCrypto.framework/NFWebCrypto"
+        )
+
+        if not BINARY_PATH.exists():
+            print(
+                "    [WARN] build_session_region: NFWebCrypto binary not found at "
+                f"{BINARY_PATH}. session_region はゼロ埋めにフォールバック。"
+            )
+            return bytes(172)
+
+        try:
+            # tools/emulate_tfit.py をモジュールとしてインポート
+            tools_dir = str(Path(__file__).resolve().parent.parent.parent / "tools")
+            if tools_dir not in sys.path:
+                sys.path.insert(0, tools_dir)
+
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                "emulate_tfit", Path(tools_dir) / "emulate_tfit.py"
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError("emulate_tfit.py のロードに失敗")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[arg-type]
+
+            import lief
+
+            binary_data = BINARY_PATH.read_bytes()
+            binary = lief.MachO.parse(str(BINARY_PATH)).at(0)
+
+            emu = mod.TFITEmulator(binary_data, binary)
+            ks = mod.load_key_schedule(mod.MGK_TYPE_IPHONE, binary_data)
+
+            # TFIT-WB-AES-128-ECB: 8 ブロック × 16B = 128B
+            tfit_dh_pub = bytearray()
+            for i in range(8):
+                block = dh_pub_key[i * 16 : (i + 1) * 16]
+                tfit_dh_pub.extend(emu.encrypt_block(ks, block))
+
+        except Exception as e:
+            print(
+                f"    [WARN] build_session_region: TFIT エミュレーション失敗 ({e}). "
+                "session_region はゼロ埋めにフォールバック。"
+            )
+            return bytes(172)
+
+        # session_region[135:172] = 37B MGK テール
+        # 構成: CBOR フレーム + TFIT(enc_key_0) + TFIT(sign_key_0[:16]) の一部
+        # ※ 正確な CBOR エンコーディングは未解明のためゼロ埋め
+        # TODO: MGK テールの正確な CBOR エンコーディングを解明して実装する
+        mgk_tail = bytes(37)
+
+        result = (
+            IOS_KEY336_SESSION_REGION_PREFIX  # 7B: 定数 CBOR プレフィックス
+            + bytes(tfit_dh_pub)  # 128B: TFIT(DH_pub_key)
+            + mgk_tail  # 37B: MGK テール (未解明)
+        )
+        assert len(result) == 172, f"session_region length {len(result)} != 172"
+        return result
 
     # ---- key 33.6 scheme_data 構築 (Scheme 3 / appboot) ----
 

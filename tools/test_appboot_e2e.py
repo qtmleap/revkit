@@ -460,15 +460,32 @@ def run_e2e_test(
     print(f"  DH pub_key: {dh_pub_key[:16].hex()}... ({len(dh_pub_key)}B)")
 
     # ------------------------------------------------------------------
-    # session_region を DH 公開鍵からゼロパディングで仮構築
+    # session_region を TFIT-WB-AES で構築 (NFWebCrypto.framework が必要)
     # ------------------------------------------------------------------
-    # TODO: 本来は TFIT-WB-AES (tools/emulate_tfit.py の session_region 導出) が必要。
-    #       現在は 172B のゼロ埋めプレースホルダーを使用。
-    #       このため key 33.6 の内容は正しくなく、サーバーは鍵交換を拒否する。
-    #       Phase 2 以降の DH 鍵合意は成立しない。
-    #       正式フローでは emulate_tfit.py で DH 公開鍵を TFIT-WB-AES 暗号化し
-    #       session_region (172B) に格納する。
-    session_region_placeholder = b"\x00" * 172
+    # TFIT エミュレーションで DH 公開鍵を WB-AES-128-ECB 暗号化して session_region を構築。
+    # NFWebCrypto バイナリが存在しない場合は 172B ゼロ埋めにフォールバック。
+    # NOTE: session_region[135:172] (37B MGK テール) は CBOR エンコーディングが未解明のため
+    #       現状はゼロ埋め。サーバーが鍵交換を拒否する可能性がある。
+    print()
+    print("[Phase 1a'] session_region を TFIT エミュレーションで構築中...")
+    session_region = NetflixCrypto.build_session_region(
+        dh_pub_key=dh_pub_key,
+        enc_key_0=enc_key_0,
+        sign_key_0=sign_key_0,
+    )
+    is_zero_filled = session_region == bytes(172)
+    if is_zero_filled:
+        print(
+            "  session_region: ゼロ埋め (TFIT バイナリ未検出またはエミュレーション失敗)"
+        )
+    else:
+        print(
+            f"  session_region: TFIT 暗号化済み {session_region[:7].hex()}..."
+            f" ({len(session_region)}B)"
+        )
+        print(f"    prefix (7B):    {session_region[:7].hex()}")
+        print(f"    TFIT[0] (16B):  {session_region[7:23].hex()}")
+        print(f"    TFIT[-1] (16B): {session_region[119:135].hex()}")
 
     # セパレータは実測キャプチャから取得した既知の値を使用
     # (セッション固有値のため、実際の接続では Frida キャプチャが必要)
@@ -489,7 +506,7 @@ def run_e2e_test(
     )
 
     key_request_bytes, k9_xor_nonce, nonce_7b = build_key_request_data(
-        session_region=session_region_placeholder,
+        session_region=session_region,
         s1=s1,
         s2=s2,
         s3=s3,
