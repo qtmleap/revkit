@@ -1,0 +1,4 @@
+module NetflixEntityAuthC {
+    header "NetflixEntityAuthC.h"
+    export *
+}
