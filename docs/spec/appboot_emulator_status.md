@@ -49,50 +49,41 @@ errorcode=6, internalcode=204060
 "App Id Validation failed."
 ```
 
-以前は `errorcode=1 "Error parsing MSL encodable"` (CBOR パース失敗) だったが、
-Netflix カスタム CBOR エンコーダ実装により解消。CBOR 構造はサーバーに受理されている。
+### エラー遷移履歴:
+1. `errorcode=1 "Error parsing MSL encodable"` → Netflix カスタム CBOR エンコーダで解消
+2. `errorcode=6 "App Id Validation failed"` → CBOR パース成功、apphmac 検証で失敗
+
+### 検証結果:
+- apphmac なし → errorcode=1 (パースエラー) — **apphmac は必須フィールド**
+- ランダム 32B apphmac → errorcode=6 (検証失敗) — **サーバーが apphmac を検証している**
+- キャプチャ済み 32B apphmac (古いセッション) → errorcode=6 — **期限切れまたは DH 鍵と紐付き**
+- 実キャプチャリプレイ → errorcode=1 (復号失敗) — **リプレイ保護動作**
 
 ## 4. 残課題
 
-### 4.1 errorcode=6 の原因 (最優先)
+### 4.1 apphmac (32B) のサーバー検証ロジック (最優先)
 
-`App Id Validation failed` は entity_auth_data のデバイストークンが空のため。
-
-**apphmac / devicetoken の初回取得問題:**
-
-現在の実装は初回リクエストでこれらを空で送信しているが、サーバーが拒否する。
-実機では `NFSharedStore` (App Group コンテナ) にキャッシュされた値が使われる。
+apphmac は必須で、サーバーが検証する。ランダム値では通らない。
+TFIT 暗号化 DH 鍵 → MGK → apphmac の関連が推定されるが、
+32B の正確な導出式は未解明。
 
 対処方針:
-1. Tweak でキャプチャした deviceIdToken をテストに使用して動作確認
-2. deviceIdToken なしでサーバーが受理するパスがあるか調査
-   - 実機の初回プロビジョニング時にどのエンドポイントが使われるか
-   - `getNRMCookieWithESN:` の内部動作を追跡
+1. getAuthData() (MslClient 0x284bc) で apphmac 値を直接キャプチャ (Frida/Tweak)
+2. 同一セッションの DH 鍵 + apphmac をペアでキャプチャし、導出関係を検証
+3. TFIT 暗号化結果のハッシュ (SHA-256 of scheme_data) が apphmac の可能性を検証
 
-### 4.2 session_region テール 37B
-
-key 33.6 の session_region [128:300] のうち:
-- `[128:135]` prefix 7B: ✅ 実装済み (`6260c8a117cf31`)
-- `[135:263]` TFIT(DH_pub) 128B: ✅ 実装済み
-- `[263:300]` テール 37B: ❌ 現在ゼロ埋め
-
-実データとの比較で MGK 関連のバイトパターンが見えるが、正確な構造は未解明。
-エラーが errorcode=6 に変わったため、テール構造の問題ではなくトークン不足が原因の可能性が高い。
-
-### 4.3 server_scheme_data からの DH 公開鍵抽出
+### 4.2 server_scheme_data からの DH 公開鍵抽出
 
 appboot レスポンスの key 33.6 (96B) からサーバー DH 公開鍵を抽出するロジックが未実装。
-構造は `[IV(16B)][CT(48B)][HMAC(32B)]` と推定されるが、復号鍵の由来が未解明。
 Frida フックで `DH_compute_key` の入力引数をキャプチャすることで解明可能。
 
-### 4.4 CBOR フィールドの完全一致
+### 4.3 payload chunk の正確なフォーマット
 
-生成リクエスト (789B) と実キャプチャ (1386B) のサイズ差の主因:
-- apphmac: 空 vs 32B → 差分 ~40B (CBOR オーバーヘッド含む)
-- devicetoken: 空 vs 216B → 差分 ~220B
-- その他 CBOR 構造の微妙な差異
+appboot リクエストは 2 つの CBOR メッセージの連結:
+- Message 1 (1037B): entity_auth_data + key_request_data + signature
+- Message 2 (~336B): payload_chunk (key 64) + signature (key 16)
 
-deviceIdToken を含めたリクエストで再テストすればサイズは近づく見込み。
+payload_chunk の内部フォーマット (暗号化鍵、IV、ペイロード本体) が未解明。
 
 ## 5. 値の取得方法まとめ
 
