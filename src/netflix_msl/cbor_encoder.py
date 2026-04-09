@@ -371,6 +371,132 @@ class CborMslEncoder:
             signature=signature,
         )
 
+    def build_appboot_request(
+        self,
+        esn: str,
+        dh_pub_key: bytes,
+        appid: str,
+        devicetoken: str,
+        apphmac: str,
+        device_key_data: bytes,
+        session_region: bytes,
+        s1: bytes,
+        s2: bytes,
+        s3: bytes,
+        renewable: bytes,
+        capabilities: dict,
+        appkeyversion: int = 1,
+        esn_prefix: str = "",
+        scheme_suffix: str = "_3",
+    ) -> tuple[bytes, bytes, bytes]:
+        """iOS appboot CBOR MSL リクエストを構築する.
+
+        appboot リクエストの全体構造 (msl_cbor_key_exchange_analysis.md §1.1):
+          {
+            34: CBOR(entity_auth_data)   ← FAIRPLAY_MGK_APPID
+            33: CBOR(key_request_data)   ← Scheme 3, scheme_data 352B XOR 暗号化
+            32: CBOR(header)             ← capabilities
+            16: HMAC-SHA256(32 bytes)    ← メッセージ署名
+          }
+
+        key 33 の sub-key:
+          6:  scheme_data (464B) — build_key336_scheme_data で生成した 352B を含む XOR 暗号化データ
+          7:  master_token (空 bytes) — 新規セッション
+          8:  identity (ESN + scheme_suffix)
+          9:  k9_xor_nonce (16B)
+
+        Args:
+            esn:             PRV ESN 全体
+            dh_pub_key:      TFIT 暗号化済み DH 公開鍵を含む session_region の元となる
+                             クライアント DH 公開鍵 (128 bytes)。
+                             TODO: TFIT エミュレーションが未実装のため、session_region を
+                             直接渡す方式を使用する。
+            appid:           アプリ識別子 UUID
+            devicetoken:     デバイストークン (hex string)
+                             TODO: Frida/Tweak キャプチャで取得が必要
+            apphmac:         アプリ認証 HMAC-SHA256 (hex string)
+                             TODO: Frida/Tweak キャプチャで取得が必要
+            device_key_data: デバイス固有鍵データ (~6,576 bytes)
+                             TODO: Frida/Tweak キャプチャで取得が必要
+            session_region:  172B セッション領域 (key 33.6 平文の [128:300])。
+                             TFIT エミュレーションまたは Frida キャプチャで取得。
+                             TODO: TFIT エミュレーション (tools/emulate_tfit.py) 実装後に自動化
+            s1:              9B セッション固定セパレータ
+                             TODO: Frida キャプチャで取得が必要
+            s2:              9B セッション固定セパレータ
+                             TODO: Frida キャプチャで取得が必要
+            s3:              9B セパレータ (per-request counter)
+                             TODO: Frida キャプチャで取得が必要
+            renewable:       capabilities key 16 の固定バイト列 (44 bytes)
+                             TODO: 既知の固定値をキャプチャから取得
+            capabilities:    capabilities dict (key 15 の値)
+            appkeyversion:   鍵バージョン (default 1)
+            esn_prefix:      ESN プレフィックス。空の場合は esn から自動抽出。
+            scheme_suffix:   identity サフィックス (default "_3")
+
+        Returns:
+            (cbor_message, k9_xor_nonce, nonce_7b):
+              cbor_message   : CBOR エンコードされた appboot リクエスト全体
+              k9_xor_nonce   : key 33.9 として使用した 16B XOR nonce
+              nonce_7b       : key 33.6 内の 7B per-request nonce
+
+        Raises:
+            EncodeError: session_region の長さが不正な場合
+        """
+        import os
+
+        from netflix_msl.crypto import NetflixCrypto
+
+        # --- key 33.9 nonce と 7B nonce を生成 ---
+        k9_xor_nonce = os.urandom(16)
+        nonce_7b = os.urandom(7)
+
+        # --- key 33.6 scheme_data (352B) を構築 ---
+        scheme_data_enc, k9_xor_nonce = NetflixCrypto.build_key336_scheme_data(
+            session_region=session_region,
+            nonce_7b=nonce_7b,
+            s1=s1,
+            s2=s2,
+            s3=s3,
+            k9_xor_nonce=k9_xor_nonce,
+        )
+
+        # --- entity_auth_data を構築 ---
+        entity_auth_data = self.build_entity_auth_data(
+            esn=esn,
+            appid=appid,
+            devicetoken=devicetoken,
+            apphmac=apphmac,
+            device_key_data=device_key_data,
+            appkeyversion=appkeyversion,
+            esn_prefix=esn_prefix,
+        )
+
+        # --- header を構築 ---
+        header_bytes = self.build_header(
+            renewable=renewable,
+            capabilities=capabilities,
+        )
+
+        # --- key_request_data を構築 ---
+        # identity = ESN + scheme suffix (e.g. "NFAPPL-02-..._3")
+        identity = esn + scheme_suffix
+        key_request_bytes = self.build_key_request_data(
+            scheme_data=scheme_data_enc,
+            master_token=b"",
+            identity=identity,
+            nonce=k9_xor_nonce,
+        )
+
+        # --- appboot メッセージを構築 (署名なし) ---
+        cbor_message = self.build_appboot_message(
+            entity_auth_data=entity_auth_data,
+            header_bytes=header_bytes,
+            key_request_bytes=key_request_bytes,
+        )
+
+        return cbor_message, k9_xor_nonce, nonce_7b
+
     # ------------------------------------------------------------------
     # ユーティリティ
     # ------------------------------------------------------------------

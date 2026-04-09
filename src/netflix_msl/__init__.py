@@ -14,12 +14,17 @@ from netflix_msl.constants import (
     ENetflixProfile,
     ENetflixVideoCodec,
 )
-from netflix_msl.crypto import NetflixCrypto
+from netflix_msl.crypto import NetflixCrypto, SessionKeys
 from netflix_msl.client import NetflixMSL
+from netflix_msl.ios_client import iOSMslClient, iOSAppbootParams, iOSSessionState
 
 __all__ = [
     "NetflixMSL",
     "NetflixCrypto",
+    "SessionKeys",
+    "iOSMslClient",
+    "iOSAppbootParams",
+    "iOSSessionState",
     "ENDPOINTS",
     "ENetflixVideoCodec",
     "ENetflixProfile",

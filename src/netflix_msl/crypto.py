@@ -13,12 +13,31 @@ import base64
 import hashlib
 import hmac as hmac_mod
 import os
+from dataclasses import dataclass
 
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import dh, padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from netflix_msl.constants import IOS_KEY336_DEVICE_HEADER, RSA_KEYPAIR_ID
+from netflix_msl.constants import (
+    IOS_DH_G,
+    IOS_DH_P,
+    IOS_KDF_NONCE,
+    IOS_KDF_PSK,
+    IOS_KEY336_DEVICE_HEADER,
+    RSA_KEYPAIR_ID,
+)
+
+
+@dataclass
+class SessionKeys:
+    """MSL セッション鍵セット."""
+
+    enc_key: bytes  # AES-128 暗号化鍵 (16 bytes)
+    sign_key: bytes  # HMAC-SHA256 署名鍵 (32 bytes)
+    bootstrap_key: bytes  # ペイロード全体署名鍵 = Phase 2 sign_key (32 bytes)
+    enc_key_1: bytes  # Phase 3 KDF 更新済み暗号化鍵 (16 bytes)
+    sign_key_1: bytes  # Phase 3 KDF 更新済み署名鍵 (32 bytes)
 
 
 class NetflixCrypto:
@@ -214,6 +233,135 @@ class NetflixCrypto:
             self.rsa_public_key = self.rsa_private_key.public_key()
 
         return bool(self.encryption_key and self.sign_key)
+
+    # ---- DH 鍵交換 (1024-bit, g=5, Netflix 固有 p) ----
+
+    @staticmethod
+    def generate_dh_keypair(
+        p: bytes | None = None,
+        g: int | None = None,
+    ) -> tuple[bytes, bytes]:
+        """DH 鍵ペアを生成する.
+
+        Args:
+            p: DH 素数 (big-endian bytes)。None の場合は IOS_DH_P 定数を使用。
+            g: DH 生成元。None の場合は IOS_DH_G 定数を使用。
+
+        Returns:
+            (private_key_bytes, public_key_bytes) — 各 128 bytes (1024-bit)
+        """
+        p_int = int.from_bytes(p, "big") if p is not None else IOS_DH_P
+        g_int = g if g is not None else IOS_DH_G
+
+        params = dh.DHParameterNumbers(p_int, g_int)
+        parameters = params.parameters()
+        private_key = parameters.generate_private_key()
+        public_key = private_key.public_key()
+
+        pn = private_key.private_numbers()
+        pub_n = public_key.public_numbers()
+
+        # 1024-bit = 128 bytes に固定長でシリアライズ (big-endian)
+        key_len = (p_int.bit_length() + 7) // 8
+        priv_bytes = pn.x.to_bytes(key_len, "big")
+        pub_bytes = pub_n.y.to_bytes(key_len, "big")
+        return priv_bytes, pub_bytes
+
+    @staticmethod
+    def compute_dh_shared_secret(
+        peer_public: bytes,
+        private_key: bytes,
+        p: bytes | None = None,
+        g: int | None = None,
+    ) -> bytes:
+        """DH 共有秘密を計算する.
+
+        Args:
+            peer_public:  相手の DH 公開鍵 (big-endian bytes, 128 bytes)
+            private_key:  自分の DH 秘密鍵 (big-endian bytes, 128 bytes)
+            p:            DH 素数 (big-endian bytes)。None の場合は IOS_DH_P 定数を使用。
+            g:            DH 生成元。None の場合は IOS_DH_G 定数を使用。
+
+        Returns:
+            DH 共有秘密 (big-endian bytes, 128 bytes)
+        """
+        p_int = int.from_bytes(p, "big") if p is not None else IOS_DH_P
+        # g is not needed for DH shared secret computation (peer_pub ^ priv mod p)
+        _ = g
+
+        peer_y = int.from_bytes(peer_public, "big")
+        priv_x = int.from_bytes(private_key, "big")
+
+        # shared = peer_y ^ priv_x mod p
+        shared_int = pow(peer_y, priv_x, p_int)
+        key_len = (p_int.bit_length() + 7) // 8
+        return shared_int.to_bytes(key_len, "big")
+
+    # ---- 全鍵導出チェーン (Phase 0 MGK → Phase 3 KDF → Phase 2 DH) ----
+
+    @staticmethod
+    def derive_full_key_chain(
+        enc_key_0: bytes,
+        sign_key_0: bytes,
+        dh_shared_secret: bytes,
+        psk: bytes | None = None,
+        nonce: bytes | None = None,
+    ) -> "SessionKeys":
+        """Phase 3 KDF → Phase 2 DH → SessionKeys の全導出チェーンを実行する.
+
+        実行順序 (msl_key_relationship.md §2):
+          Phase 3: kdf_renew(PSK, enc_key_0, sign_key_0, nonce) → enc_key_1, sign_key_1, session_bind
+          48B Key: SHA384(session_bind[:16])
+          Phase 2: derive_initial_session_keys(48B_KEY, dh_shared_secret)
+                   → new_enc_key (enc_key), bootstrap_key (sign_key)
+
+        Args:
+            enc_key_0:        Phase 0 MGK 暗号化鍵 (16 bytes)。
+                              Frida/Tweak キャプチャまたは TFIT エミュレーションで取得。
+            sign_key_0:       Phase 0 MGK 署名鍵 (32 bytes)。
+            dh_shared_secret: DH_compute_key() の出力 (128 bytes)。
+                              Frida/Tweak キャプチャで取得。
+            psk:              Pre-Shared Key (16 bytes)。None の場合は IOS_KDF_PSK を使用。
+            nonce:            KDF nonce (16 bytes)。None の場合は IOS_KDF_NONCE を使用。
+
+        Returns:
+            SessionKeys: enc_key, sign_key, bootstrap_key, enc_key_1, sign_key_1
+
+        Raises:
+            ValueError: 入力長が不正な場合
+        """
+        if len(enc_key_0) != 16:
+            raise ValueError(f"enc_key_0 must be 16 bytes, got {len(enc_key_0)}")
+        if len(sign_key_0) != 32:
+            raise ValueError(f"sign_key_0 must be 32 bytes, got {len(sign_key_0)}")
+        if len(dh_shared_secret) != 128:
+            raise ValueError(
+                f"dh_shared_secret must be 128 bytes, got {len(dh_shared_secret)}"
+            )
+
+        _psk = psk if psk is not None else IOS_KDF_PSK
+        _nonce = nonce if nonce is not None else IOS_KDF_NONCE
+
+        # Phase 3: KDF Key Renewal (HMAC-SHA256 chain)
+        enc_key_1, sign_key_1 = NetflixCrypto.kdf_renew(
+            _psk, enc_key_0, sign_key_0, _nonce
+        )
+
+        # 48B Key: SHA384(session_bind[:16])
+        key_48b = NetflixCrypto.derive_hmac384_key(_psk, enc_key_0, sign_key_0, _nonce)
+
+        # Phase 2: HMAC-SHA384(48B_KEY, 0x00 || dh_shared_secret)
+        enc_key, bootstrap_key = NetflixCrypto.derive_initial_session_keys(
+            key_48b, dh_shared_secret
+        )
+
+        return SessionKeys(
+            enc_key=enc_key,
+            sign_key=enc_key_1,  # 初期 MSL 暗号化鍵 = enc_key_1 (Phase 4 で使用)
+            bootstrap_key=bootstrap_key,  # ペイロード全体署名鍵 (Phase 5)
+            enc_key_1=enc_key_1,
+            sign_key_1=sign_key_1,
+        )
 
     # ---- Scheme 5 (DH) KDF: セッション鍵更新 ----
 
