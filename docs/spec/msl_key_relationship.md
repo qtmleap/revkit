@@ -1,7 +1,7 @@
 # Netflix iOS MSL 鍵の関係図
 
 作成日: 2026-04-08
-更新日: 2026-04-09 (Phase 2 KDF 解明: HMAC-SHA384 + 48B 鍵)
+更新日: 2026-04-09 (全鍵導出チェーン解明: ESN → MGK → Phase 2/3/4/5)
 
 ---
 
@@ -14,8 +14,17 @@ graph TD
         NONCE_HARD["nonce 128-bit"]
         DH_P["DH p 1024-bit"]
         DH_G["DH g = 5"]
+        TFIT_TBL["TFIT テーブル 199KB"]
         RSA_BOOT["kAppBootKey RSA-4096"]
         ECC_BOOT["kAppBootEccKey ECDSA P-256"]
+    end
+
+    subgraph Phase0["Phase 0: MGK 生成 -- 解明済み"]
+        ESN["ESN (デバイス固有)"] --> SHA384_ESN["SHA384"]
+        SHA384_ESN --> TFIT_ECB["TFIT-WB-AES-128-ECB × 3"]
+        TFIT_TBL --> TFIT_ECB
+        TFIT_ECB --> MGK_ENC["MGK key = enc_key_0 128-bit"]
+        TFIT_ECB --> MGK_SIGN["MGK vector = sign_key_0 256-bit"]
     end
 
     subgraph Phase1["Phase 1: appboot 鍵交換"]
@@ -36,14 +45,14 @@ graph TD
         SHA384_OP --> KEY48["48B 鍵 384-bit"]
         KEY48 -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
         DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
-        PHASE2_KDF --> ENC0["enc_key_0 128-bit"]
-        PHASE2_KDF --> SIGN0["sign_key_0 256-bit"]
+        PHASE2_KDF --> NEW_ENC["new enc_key 128-bit"]
+        PHASE2_KDF --> NEW_SIGN["new sign_key 256-bit"]
     end
 
     subgraph Phase3["Phase 3: KDF 鍵更新 -- 解明済み"]
         PSK -->|HMAC key| KDF["KDF HMAC-SHA256 chain"]
-        ENC0 -->|常に enc_key_0| KDF
-        SIGN0 -->|常に sign_key_0| KDF
+        MGK_ENC -->|enc_key_0| KDF
+        MGK_SIGN -->|sign_key_0| KDF
         NONCE_HARD -->|入力| KDF
         KDF --> ENC1["enc_key_1 128-bit"]
         KDF --> SIGN1["sign_key_1 256-bit"]
@@ -82,23 +91,26 @@ graph TD
     style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
     style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
 
-    %% 黄: 計算可能 (48B 鍵が判明すれば)
-    style KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style PHASE2_KDF fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style DH_COMPUTE fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style ENC0 fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style SIGN0 fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style ENC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style SIGN1 fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style DECRYPT fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style DH_SHARED fill:#f1c40f,stroke:#d4ac0f,color:#000
+    %% 緑: 解明済み (Python で計算可能)
+    style KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style PHASE2_KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DH_COMPUTE fill:#2ecc71,stroke:#27ae60,color:#fff
+    style MGK_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
+    style MGK_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style NEW_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
+    style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SIGN1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DECRYPT fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DH_SHARED fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KEY48 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SHA384_OP fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SHA384_ESN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style TFIT_ECB fill:#2ecc71,stroke:#27ae60,color:#fff
 
     %% オレンジ: 由来不明
     style BOOT_KEY fill:#fa0,stroke:#a60,color:#fff
     style KEY336_REQ fill:#fa0,stroke:#a60,color:#fff
-
-    %% 緑: 解明済み (48B鍵は計算可能)
-    style KEY48 fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### 凡例
@@ -123,16 +135,22 @@ sequenceDiagram
     participant C as クライアント
     participant S as Netflix サーバー
 
-    Note over B: PSK, nonce はハードコード
+    Note over B: PSK, nonce, TFIT テーブルはハードコード
+
+    rect rgba(46, 204, 113, 0.25)
+    Note over B: Phase 0: MGK 生成 -- 解明済み
+    Note over B: SHA384(ESN) → TFIT-WB-AES-128-ECB × 3
+    Note over B: → enc_key_0 = MGK key, sign_key_0 = MGK vector
+    end
 
     rect rgba(70, 130, 200, 0.25)
     Note over C,S: Phase 1-2: 起動時 -- 解明済み
+    Note over C: Phase 3 KDF → session_bind[:16] → SHA384 → 48B鍵
     C->>S: appboot リクエスト (DH 公開鍵含む)
     S->>C: appboot レスポンス (サーバー DH 公開鍵含む)
     Note over C: DH_compute_key → 共有秘密 1024-bit
-    Note over B: 48B 鍵 (由来不明) を生成
     Note over C: HMAC-SHA384(48B鍵, 0x00 || 共有秘密)
-    Note over C: → enc_key_0 (128-bit), sign_key_0 (256-bit)
+    Note over C: → new enc_key, new sign_key
     end
 
     rect rgba(200, 170, 50, 0.25)
@@ -267,11 +285,13 @@ sign_key_2 の復号:
 
 | 鍵名 | サイズ | 格納場所 | 用途 | 状態 |
 |------|--------|----------|------|------|
-| PSK | 128-bit | バイナリ | KDF マスター鍵 | 確定 |
-| nonce | 128-bit | バイナリ | KDF 入力 | 確定 |
+| ESN | 可変 | デバイス固有 | MGK 生成の入力 | デバイスから取得 |
+| PSK | 128-bit | バイナリ 0x1AC8F5 | KDF マスター鍵 | 確定 |
+| nonce | 128-bit | バイナリ 0x1AC905 | KDF 入力 | 確定 |
+| TFIT テーブル | 199KB | バイナリ 0x1ACF28-0x1DEBA8 | MGK 生成 (WB-AES) | 確定 |
+| enc_key_0 (=MGK key) | 128-bit | TFIT(SHA384(ESN))[0:16] | AES-128-CBC 暗号化 (初期) | **Unicorn で計算可能** |
+| sign_key_0 (=MGK vec) | 256-bit | TFIT(SHA384(ESN))[16:48] | HMAC-SHA256 署名 (初期) | **Unicorn で計算可能** |
 | 48B 鍵 | 384-bit | SHA384(session_bind[:16]) | Phase 2 HMAC-SHA384 の鍵 | **計算可能** |
-| enc_key_0 | 128-bit | Phase 2 KDF 出力 | AES-128-CBC 暗号化 (起動時) | 計算可能 (48B 鍵があれば) |
-| sign_key_0 | 256-bit | Phase 2 KDF 出力 | HMAC-SHA256 署名 (起動時) | 計算可能 (48B 鍵があれば) |
 | enc_key_1 | 128-bit | KDF 出力 | 暗号化 + ログイン鍵配送の復号鍵 | 計算可能 |
 | sign_key_1 | 256-bit | KDF 出力 | 署名 (ログイン前) | 計算可能 |
 | enc_key_2 | 128-bit | サーバー配送 | 暗号化 (ログイン後) | enc_key_1 で復号可能 |
