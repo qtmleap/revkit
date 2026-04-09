@@ -64,6 +64,57 @@ IOS_DH_G = 5
 # appboot エンドポイント
 IOS_APPBOOT_ENDPOINT = "https://appboot.netflix.com/appboot/"
 
+# iOS appboot 署名検証鍵 (NFWebCrypto.framework からの静的抽出)
+# kAppBootKey: RSA-4096 SPKI/DER (550B) — RSASSA-PKCS1-v1_5 検証用
+# バイナリオフセット: NFWebCrypto @ 0x0020cd31 (__TEXT.__cstring, Base64)
+# ハンドル: "ABKP", usage=VERIFY(8), algorithm=5
+IOS_APPBOOT_RSA_KEY_DER = bytes.fromhex(
+    "30820222300d06092a864886f70d0101010500038202"
+    "0f003082020a0282020100dfd07d27db5f0a4d48e4d8"
+    "f52475418908bf0db014159790c416363af2be713e83a"
+    "176c23708acf1ef48066bd006848b8ea7834ec28b2024"
+    "43648e092ba2c87ad8fdfdc4288d8c22e4183b2b28a40"
+    "81048de2b5e438818525b6a731a71e58f186b88b874ed"
+    "9f058a0dbce8ed0a93006f6ba1ad28b158930a5dba274"
+    "bb703079c82089f0ca407d5ccde371c035246b36347400"
+    "db40c8abd94976c2108f51d37adc8af0dab67e35f4c717"
+    "cf1c8954304f1bb4b65e9adeef513b234dc53762a57cbc"
+    "d85e54c6bc30674f9918fd40955ed065b8108a4822eecd"
+    "bd49051e4d7e659a5095d79014c8e78fb247c5ff45fe79"
+    "cfbedef3041acf3f44078174f88e1f5790d29ddb86d4c2"
+    "b17606cf9492fe59e0842bfb6a59f780502cff12c6dcdf"
+    "c1e5246c41e83721321 96ca789ce1eac34923cd869449cc"
+    "6a594eef21e5a049933c4db9f208f0f2c127424a35bb51"
+    "d344a7b91e86ad856ec96b5a9e07b4480ea6b3069718e4"
+    "7a8fda48d9fb2b96b97aac443f5b937dfeffa4ed78ac6b"
+    "e3fde4c00e62b1e0928b7901c0696d008525235c508240"
+    "2eb8964d63aad5083e4a53dd26e88963a18bcb4cd4c1ab"
+    "701441b63c3909f30cced56ce5bf7a01281261eeb32cb8"
+    "dc01e74e76678517ca2471678d2889b29c38ab9e672c9e"
+    "42dba0502caa7e31cde632197bd82ab113bbed309df822"
+    "b88de969dd0ae0aa5728283a2ec95f0c4f4e4a07020301"
+    "0001"
+)
+
+# kAppBootEccKey: ECDSA P-256 SPKI/DER (91B) — ECDSA 検証用
+# バイナリオフセット: NFWebCrypto @ 0x0020d10c (__TEXT.__cstring, Base64)
+# ハンドル: "ABECCKP", usage=VERIFY(8), algorithm=0x10
+IOS_APPBOOT_ECC_KEY_DER = bytes.fromhex(
+    "3059301306072a8648ce3d020106082a8648ce3d03010703420004"
+    "c9c976ffc2aaca876e811f2ee83233504eababe7b84c28ffa847"
+    "e18c60b85b12ef0545a0e74ab67ff08b14f1d4e96eae4a8b5ab0"
+    "f7d84f738ed8146a1a5d199c"
+)
+
+# kSharkBootKey (prod): ECDSA P-256 SPKI/DER (91B) — Shark boot 署名検証用
+# バイナリオフセット: NFWebCrypto @ 0x0020d08f
+IOS_SHARKBOOT_KEY_DER = bytes.fromhex(
+    "3059301306072a8648ce3d020106082a8648ce3d030107034200"
+    "04e265d864ff1d7a5b7b654af5b0bfe1f3f53083e2ab2a2eb962"
+    "c7cbb96a55fd9ea1510e6de3973b050a4d419d7e25f321f6f513"
+    "7591de8897f6764ff4ad1fb552"
+)
+
 # key 33.6 scheme_data の固定デバイスヘッダー (128B)
 # 180 個の 352B appboot サンプルのうち 165 個 (標準 iPhone) で共通の定数。
 # plaintext[0:128] の値 (XOR 復号後)。
