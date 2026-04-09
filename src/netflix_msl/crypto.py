@@ -457,6 +457,27 @@ class NetflixCrypto:
         sign_key = digest[16:48]
         return enc_key, sign_key
 
+    # ---- apphmac 計算 (FAIRPLAY_MGK_APPID entity_auth_data) ----
+
+    @staticmethod
+    def compute_apphmac(enc_key_0: bytes, sign_key_0: bytes) -> bytes:
+        """apphmac を HKDF(key=MGK, ikm=PSK, info=Nonce) で計算する.
+
+        AppleWebCrypto::HKDF の再実装:
+          Extract: prk = HMAC-SHA256(key=MGK, data=PSK)
+          Expand:  okm = HMAC-SHA256(key=prk, data=Nonce)
+
+        Args:
+            enc_key_0:  Phase 0 MGK 暗号化鍵 (16 bytes)
+            sign_key_0: Phase 0 MGK 署名鍵 (32 bytes)
+
+        Returns:
+            32 バイトの apphmac 値
+        """
+        mgk = enc_key_0 + sign_key_0  # 48B
+        prk = hmac_mod.new(mgk, IOS_KDF_PSK, hashlib.sha256).digest()
+        return hmac_mod.new(prk, IOS_KDF_NONCE, hashlib.sha256).digest()
+
     # ---- key 33.6 scheme_data 構築 (Scheme 3 / appboot) ----
 
     @staticmethod

@@ -32,7 +32,7 @@ appboot から MSL セッション鍵確立までの End-to-end フローを実�
 
   - enc_key_0 / sign_key_0: TFIT エミュレーション (emulate_tfit.py) で導出可能
   - devicetoken: Frida/Tweak `AppbootKeyExtract` でキャプチャ
-  - apphmac:     Frida/Tweak `AppbootKeyExtract` でキャプチャ
+  - apphmac:     NetflixCrypto.compute_apphmac(enc_key_0, sign_key_0) で計算可能
   - device_key_data: Frida/Tweak `AppbootKeyExtract` でキャプチャ (~6,576 bytes)
   - session_region: TFIT エミュレーション (emulate_tfit.py) または Frida キャプチャ
   - s1, s2, s3: Frida キャプチャで取得
@@ -48,7 +48,7 @@ import requests
 
 from netflix_msl.cbor_decoder import CborMslDecoder
 from netflix_msl.cbor_encoder import CborMslEncoder
-from netflix_msl.constants import IOS_APPBOOT_ENDPOINT
+from netflix_msl.constants import IOS_APPBOOT_ENDPOINT, IOS_APPID, IOS_APPKEYVERSION
 from netflix_msl.crypto import NetflixCrypto, SessionKeys
 
 
@@ -77,7 +77,7 @@ class iOSAppbootParams:
 
     apphmac: str
     """アプリ認証 HMAC-SHA256 (hex string).
-    TODO: Frida/Tweak AppbootKeyExtract でキャプチャ."""
+    NetflixCrypto.compute_apphmac(enc_key_0, sign_key_0).hex() で計算可能."""
 
     device_key_data: bytes
     """デバイス固有鍵データ (~6,576 bytes).
@@ -114,7 +114,7 @@ class iOSAppbootParams:
     TODO: キャプチャから取得した値を使用すること."""
 
     # オプション
-    appkeyversion: int = 1
+    appkeyversion: int = IOS_APPKEYVERSION
     esn_prefix: str = ""
     scheme_suffix: str = "_3"
 
@@ -158,7 +158,7 @@ class iOSMslClient:
             sign_key_0=bytes.fromhex("91f752f7..."),
             appid="a2becfec-b286-535c-b884-903a384caee6",
             devicetoken="0608a1b7...",     # TODO: Frida キャプチャ
-            apphmac="a18bf28f...",          # TODO: Frida キャプチャ
+            apphmac=NetflixCrypto.compute_apphmac(enc_key_0, sign_key_0).hex(),
             device_key_data=b"...",         # TODO: Frida キャプチャ (~6576B)
             session_region=b"...",          # TODO: TFIT エミュレーション or Frida
             s1=b"...",                      # TODO: Frida キャプチャ

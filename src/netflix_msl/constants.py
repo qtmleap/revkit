@@ -64,6 +64,10 @@ IOS_DH_G = 5
 # appboot エンドポイント
 IOS_APPBOOT_ENDPOINT = "https://appboot.netflix.com/appboot/"
 
+# iOS アプリ識別子 (NFWebCrypto.framework から抽出)
+IOS_APPID = "a2becfec-b286-535c-b884-903a384caee6"
+IOS_APPKEYVERSION = 1
+
 # iOS appboot 署名検証鍵 (NFWebCrypto.framework からの静的抽出)
 # kAppBootKey: RSA-4096 SPKI/DER (550B) — RSASSA-PKCS1-v1_5 検証用
 # バイナリオフセット: NFWebCrypto @ 0x0020cd31 (__TEXT.__cstring, Base64)

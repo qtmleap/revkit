@@ -59,6 +59,14 @@ EXPECTED_SIGN_KEY_1 = bytes.fromhex(
     "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0"
 )
 
+# apphmac expected output
+# compute_apphmac(enc_key_0, sign_key_0):
+#   prk = HMAC-SHA256(key=MGK, data=PSK)
+#   okm = HMAC-SHA256(key=prk, data=Nonce)
+EXPECTED_APPHMAC = bytes.fromhex(
+    "4c142e4b82b3ad21e2dcdbcc007c27a4787adc0568959080b004b5daa5a7385a"
+)
+
 
 # ============================================================================
 # Test runner
@@ -114,9 +122,7 @@ def main() -> int:
     session_check = hmac_mod.new(
         IOS_KDF_PSK, enc_key_0 + sign_key_0, hashlib.sha256
     ).digest()
-    session_bind = hmac_mod.new(
-        session_check, IOS_KDF_NONCE, hashlib.sha256
-    ).digest()
+    session_bind = hmac_mod.new(session_check, IOS_KDF_NONCE, hashlib.sha256).digest()
     check(
         "session_bind[:16] (KDF intermediate)",
         session_bind[:16],
@@ -141,6 +147,13 @@ def main() -> int:
     )
     check("new enc_key (16B)", new_enc_key, EXPECTED_NEW_ENC_KEY)
     check("bootstrap_key = new sign_key (32B)", new_sign_key, EXPECTED_BOOTSTRAP_KEY)
+
+    # ==== apphmac: HKDF(key=MGK, ikm=PSK, info=Nonce) ====
+    print()
+    print("=== apphmac: HKDF(MGK, PSK, Nonce) ===")
+
+    apphmac = NetflixCrypto.compute_apphmac(enc_key_0, sign_key_0)
+    check("apphmac (32B)", apphmac, EXPECTED_APPHMAC)
 
     # ==== Summary ====
     print()
