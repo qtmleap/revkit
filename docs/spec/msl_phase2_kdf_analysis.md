@@ -112,14 +112,26 @@ session_bind  = HMAC-SHA256(session_check, nonce)
 - 静的解析 (`nflxDhDerive` at 0x0FEEC) でも SHA384 呼び出し (0x10174) を確認
 - `AppleNativeKey::getBytes()` (0xD7E0) で XOR デコードされた鍵バイトが SHA384 の入力
 
+### 初回セッション鍵の生成 — 解明済み (2026-04-09)
+
+```
+enc_key_0 || sign_key_0 = genModelGroupKeys(iPhone, ESN)
+  = TFIT-WB-AES-128-ECB(SHA384(ESN)[0:16])
+  || TFIT-WB-AES-128-ECB(SHA384(ESN)[16:32])
+  || TFIT-WB-AES-128-ECB(SHA384(ESN)[32:48])
+```
+
+- **MGK (Model Group Key) = 初回 enc_key_0 + sign_key_0**
+- ESN + TFIT テーブル (バイナリ埋め込み 199KB) から Unicorn エミュレーションで導出可能
+- `tools/emulate_tfit.py` で実装済み、テストベクタで検証済み
+
 ### 残りの未解明事項
 
 - **key 33.6 の TFIT エンコード**: DH 公開鍵 (128B) → 352B/144B の変換ロジック
-  - TFIT テーブル (199KB) の場所は特定済み (0x1ACF28 - 0x1DEBA8)
-  - `genModelGroupKeys` (0x1DB74) が `_TFIT_wbaes_ecb_encrypt_iAES11` を使用
-  - Unicorn エミュレーションで再現を試みる予定
+  - TFIT テーブルの場所は特定済み (0x1ACF28 - 0x1DEBA8)
+  - key 33.6 の平文構造 (XOR エンコード) は解明済み
+  - 平文内の 160B セッション領域が TFIT 変換された DH データ
 - **bootstrap_key の由来**: 未調査
-- **初回セッションの enc_key_0/sign_key_0**: 最初の 1 回はどこから来るか
 
 ## 関連ファイル
 
