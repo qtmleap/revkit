@@ -320,17 +320,28 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 
 | 値 | 固定/可変 | 再利用 | 状態 | 備考 |
 |----|----------|--------|------|------|
-| **apphmac** (32B) | ESN 依存・決定的 | 可 | **有力候補特定** | `HKDF(MGK, PSK, Nonce)` — IosMGKAuthData での最終確認が残る |
+| **apphmac** (32B) | **毎リクエスト可変** | 不可 | **未解明** | 243 リクエスト中 67 ユニーク値。ランダム/ノンス依存 |
 | **devicetoken** (216B) | 可変 | 不明 | **キャプチャ済み** | 有効期限は未確認。当面はキャプチャ値を渡す |
 | ~~**appboot sign key**~~ | — | — | **解決済み** | Keychain キャッシュ。初回は sign_key_1 で署名 |
 
-> **結論 (2026-04-09 更新):**
-> apphmac の導出式が `HKDF(key=MGK, ikm=PSK, info=Nonce)` として特定された。
-> これにより **全ての値が Python で再現可能** になった可能性がある:
+> **結論 (2026-04-09 最終更新):**
 >
-> - apphmac: `HMAC-SHA256(HMAC-SHA256(MGK, PSK), Nonce)` — MGK は TFIT エミュレーション、PSK/Nonce はバイナリ定数
-> - appboot sign key: フレッシュ appboot では sign_key_1 (Phase 3 KDF) で署名
-> - devicetoken: キャプチャ値をパラメータとして渡す (NRM API 解明で自動取得も可能)
+> **apphmac は毎リクエスト可変 (67/243 ユニーク値)。**
+> HKDF(MGK, PSK, Nonce) の出力ではないことが CBOR 直接照合で確定。
+> ランダムノンスまたはタイムスタンプに依存する値であり、
+> 既知の固定定数からは Python で再現できない。
 >
-> IosMGKAuthData コンストラクタでの直接照合が最終確認として残るが、
-> 技術的には **appboot → MSL 認証の Python 実装に必要な全値の導出式が揃った**。
+> **ただし、entity_auth_data の CBOR 構造は完全に判明した:**
+> ```
+> key 35: {
+>   "apphmac": bytes(32B),       ← 毎リクエスト可変 (導出元不明)
+>   "appid": "a2becfec-...",     ← 固定
+>   "appkeyversion": 1,          ← 固定
+>   "devicetoken": bytes(216B),  ← セッション可変
+>   3: "NFAPPL-02-IPHONE9=1-..." ← Full ESN (固定)
+> }
+> key 30: "MGK_APPID"            ← entity auth scheme 名
+> ```
+>
+> appboot sign key: フレッシュ appboot では sign_key_1 (Phase 3 KDF) で署名
+> devicetoken: キャプチャ値をパラメータとして渡す
