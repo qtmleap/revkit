@@ -56,10 +56,12 @@ graph LR
     RESP --> RESP_9["key 33.9 Server nonce 16B"]
     RESP_6 --> SRV_PUB["Server DH PubKey 128B"]
     SRV_PUB --> TO_P2b[/"to Phase 2"/]
-    ECC_BOOT["kAppBootEccKey P-256"] -.->|verify?| RESP
+    RSA_BOOT["kAppBootKey RSA-4096"] -->|RSA verify| RESP
+    ECC_BOOT["kAppBootEccKey P-256"] -->|ECDSA verify| RESP
 
     style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
     style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
+    style RSA_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
     style ECC_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
     style NONCE_SRV fill:#2ecc71,stroke:#27ae60,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
@@ -383,8 +385,8 @@ sign_key_2 の復号:
 | bootstrap_key | 256-bit | Phase 2 KDF 出力 [16:48] | ペイロード全体署名 | **= Phase 2 sign_key** |
 | DH p | 1024-bit | バイナリ | DH 鍵交換 | 確定 |
 | DH g | - | バイナリ | DH 鍵交換 | 確定 |
-| kAppBootKey | 4096-bit | バイナリ | 用途未確認 (RSA 暗号化は未使用) | 既知 |
-| kAppBootEccKey | 256-bit | バイナリ | 用途未確認 (署名検証?) | 既知 |
+| kAppBootKey | 4096-bit | バイナリ (handle ABKP) | appboot レスポンス RSA 署名検証 | **確定** |
+| kAppBootEccKey | 256-bit | バイナリ (handle ABECCKP) | appboot レスポンス ECDSA 署名検証 | **確定** |
 
 ---
 
@@ -408,6 +410,7 @@ MSL メッセージには2種類の HMAC 署名が付与される:
 - ~~kAppBootKey で DH 公開鍵を RSA 暗号化?~~ → RSA_public_encrypt / EVP_PKEY_encrypt ともに未呼び出し
 - ~~key 33.6 の構成方法~~ → CBOR ヘッダ (128B) + TFIT(DH_pub, 8ブロック) (128B) + MGK ペア (32B) + リクエスト固有 (64B)、全体を XOR(nonce) でエンコード
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
+- ~~kAppBootKey / kAppBootEccKey の用途~~ → appboot レスポンスの **署名検証** (RSA_verify / ECDSA_verify)。暗号化には使用しない
 
 ## 8. key 33.6 リクエストの構造 (352B 版)
 
@@ -436,7 +439,6 @@ plaintext (352B):
 | CBOR ヘッダの構成ロジック | Argo バイナリ内。固定値なのでキャプチャからコピー可能 |
 | リクエスト固有領域 | メッセージ ID / タイムスタンプの生成ロジック。Argo バイナリ内 |
 | 144B バリアントの構造 | map(6) vs map(7)。セッション領域が短縮される条件は未特定 |
-| kAppBootKey / kAppBootEccKey | バイナリに存在するが appboot 中に使われていない。別用途? |
 
 ### Tweak フックの制約
 
