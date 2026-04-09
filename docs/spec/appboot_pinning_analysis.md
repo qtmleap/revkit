@@ -50,8 +50,10 @@ NSURLSession TLS Handshake
 
 | 鍵 | 仕様 | 用途 |
 |----|------|------|
-| `kAppBootKey` | RSA-4096 公開鍵 (SPKI/DER) | MSL 鍵交換: クライアント→サーバー暗号化 |
-| `kAppBootEccKey` | ECDSA P-256 公開鍵 ×3 | サーバー署名検証 (prod/staging/test) |
+| `kAppBootKey` | RSA-4096 公開鍵 (SPKI/DER), Algorithm=RSASSA-PKCS1-v1_5, usage=VERIFY | サーバー応答の RSA 署名検証 (handle: "ABKP") |
+| `kAppBootEccKey` | ECDSA P-256 公開鍵 (SPKI/DER), Algorithm=ECDSA, usage=VERIFY | サーバー応答の ECDSA 署名検証 (handle: "ABECCKP") |
+| `kSharkBootKey` | ECDSA P-256 公開鍵 | Shark boot 署名検証 (prod) |
+| `kSharkBootKey_Test` | ECDSA P-256 公開鍵 | Shark boot 署名検証 (test/staging) |
 
 追加: Irdeto TFIT ホワイトボックス AES-128 (ESN 生成用 Model Group Key)
 
@@ -72,10 +74,20 @@ NSURLSession TLS Handshake
 3. `IosMslClient.shouldUseSSLTrustStore` → 常に NO
 4. `NFURLSession.setTrustStore:` / `setPinnedCertificateEvaluator:` → NULL 化
 
-## MSL 鍵交換フロー (推定)
+## MSL 鍵交換フロー (確定: 署名検証モデル)
+
+**重要: kAppBootKey は暗号化ではなく署名検証に使用される。**
+
+静的解析の根拠 (`tools/re/find_appboot_key_usage.py`):
+- `importKey()` の呼び出し引数: `usage=8` (VERIFY), `Algorithm=5` (RSASSA-PKCS1-v1_5)
+- OpenSSL 内部では `d2i_RSA_PUBKEY()` → `RSA_verify()` のパス
+- `RSA_public_encrypt()` / `EVP_PKEY_encrypt()` は Frida フックで未検出 (確認済み)
 
 1. クライアントが DH 鍵ペア生成 (`dhKeyGen`)
-2. DH 公開値を `kAppBootKey` (RSA-4096) で暗号化してサーバーへ送信
-3. サーバーレスポンスの署名を `kAppBootEccKey` (ECDSA P-256) で検証
-4. 共有シークレットから `HKDF` でセッション鍵導出
-5. 以降の通信は AES-GCM/CBC で暗号化
+2. DH 公開値をサーバーへ送信 (平文、RSA 暗号化なし)
+3. サーバーが DH 公開値 + 署名を返送
+4. クライアントが `kAppBootKey` (RSA-4096, RSASSA-PKCS1-v1_5) または
+   `kAppBootEccKey` (ECDSA P-256) でサーバー応答の署名を検証
+5. DH 共有シークレット計算
+6. `HKDF` でセッション鍵導出
+7. 以降の通信は AES-GCM/CBC で暗号化
