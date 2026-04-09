@@ -50,6 +50,25 @@ RSA_KEYPAIR_ID = "rsaKeypairId"
 IOS_KDF_PSK = bytes.fromhex("027617984f6227539a630b897c017d69")
 IOS_KDF_NONCE = bytes.fromhex("809f82a7addf548d3ea9dd067ff9bb91")
 
+# key 33.6 scheme_data の固定デバイスヘッダー (128B)
+# 180 個の 352B appboot サンプルのうち 165 個 (標準 iPhone) で共通の定数。
+# plaintext[0:128] の値 (XOR 復号後)。
+# 出典: raws/ios/20260408/raw の 352B appboot キャプチャから実測。
+IOS_KEY336_DEVICE_HEADER: bytes = bytes.fromhex(
+    "d9d9f7a7"  # CBOR: tag(55799) + map(7)
+    "1b00000000000000245835"  # pair 0 key: uint64 = 0x24 (36)
+    "d9002e54"  # pair 0 val: tag(46) bytes(20) header
+    "bc1b00000000000026a53c"  # pair 0 val continued + pair 1 key start
+    "7283497e"
+    "4fbc1b000000000027a4c17f"  # pair 1 val: bytes(15) start + ...
+    "30cc1b1a05ef544e"
+    "1b00000027a4c17f154e797f6b8f"
+    "4f4e1b00000027a4d28b0e4e797f6b8f"
+    "4f4e3181a21b27a4d28b0e4e7960c894"
+    "4f4e3181a21b2797b1c649056260c894"
+    "4f4e3181987a168cb1c64905"
+)
+
 # ============================================================================
 # User-Agent
 # ============================================================================
