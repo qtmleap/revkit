@@ -69,7 +69,7 @@ graph TD
     subgraph Phase5["Phase 5: MSL 通信"]
         ENC2 -->|暗号化 復号| MSL_ENC["AES-128-CBC"]
         SIGN2 -->|署名 検証| MSL_SIGN["HMAC-SHA256"]
-        BOOT_KEY["bootstrap_key 256-bit"] -->|ペイロード全体署名| MSL_SIGN2["HMAC-SHA256 二重署名"]
+        NEW_SIGN -->|= bootstrap_key| MSL_SIGN2["HMAC-SHA256 ペイロード全体署名"]
         MSL_ENC --> PAYLOAD["manifest / license / logblob"]
         MSL_SIGN --> PAYLOAD
         MSL_SIGN2 --> PAYLOAD
@@ -109,7 +109,6 @@ graph TD
     style TFIT_ECB fill:#2ecc71,stroke:#27ae60,color:#fff
 
     %% オレンジ: 由来不明
-    style BOOT_KEY fill:#fa0,stroke:#a60,color:#fff
     style KEY336_REQ fill:#fa0,stroke:#a60,color:#fff
 ```
 
@@ -296,7 +295,7 @@ sign_key_2 の復号:
 | sign_key_1 | 256-bit | KDF 出力 | 署名 (ログイン前) | 計算可能 |
 | enc_key_2 | 128-bit | サーバー配送 | 暗号化 (ログイン後) | enc_key_1 で復号可能 |
 | sign_key_2 | 256-bit | サーバー配送 | 署名 (ログイン後) | enc_key_1 で復号可能 |
-| bootstrap_key | 256-bit | 不明 | ペイロード全体の二重署名 | 由来不明 |
+| bootstrap_key | 256-bit | Phase 2 KDF 出力 [16:48] | ペイロード全体署名 | **= Phase 2 sign_key** |
 | DH p | 1024-bit | バイナリ | DH 鍵交換 | 確定 |
 | DH g | - | バイナリ | DH 鍵交換 | 確定 |
 | kAppBootKey | 4096-bit | バイナリ | DH パラメータ暗号化 | 既知 |
@@ -337,6 +336,7 @@ graph TD
 
 - ~~enc_key_0 / sign_key_0 の由来~~ → HMAC-SHA384(48B鍵, 0x00 || DH共有秘密) で導出 (Phase 2 で確認)
 - ~~48B HMAC 鍵の由来~~ → **SHA384(session_bind[:16])** で導出。session_bind は Phase 3 KDF の中間値
+- ~~bootstrap_key の由来~~ → **Phase 2 KDF 出力の sign_key (dh_kdf_out[16:48])** と同一
 - ~~HKDF で導出?~~ → NFWebCrypto に HKDF エクスポートなし。HMAC-SHA384 を使用
 - ~~kAppBootKey で DH 公開鍵を RSA 暗号化?~~ → RSA_public_encrypt / EVP_PKEY_encrypt ともに未呼び出し
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
