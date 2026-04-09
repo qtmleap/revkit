@@ -37,6 +37,8 @@ graph LR
     DH_P["DH p 1024-bit"] --> OP_DHGEN(["DH_generate_key"])
     DH_G["DH g = 5"] --> OP_DHGEN
     OP_DHGEN --> DH_PUB["Client DH PubKey 128B"]
+    OP_DHGEN --> DH_PRIV["Client DH PrivKey 128B"]
+    DH_PRIV -->|to Phase 2| TO_P2a[/"to Phase 2"/]
     DH_PUB --> OP_TFIT1(["TFIT-WB-AES-128-ECB x8"])
     OP_TFIT1 --> KEY336_PT["key 33.6 plaintext 352B"]
     FROM_P0[/"from Phase 0: MGK Pair 32B"/] --> KEY336_PT
@@ -53,6 +55,8 @@ graph LR
     style NONCE_SRV fill:#2ecc71,stroke:#27ae60,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
+    style DH_PRIV fill:#2ecc71,stroke:#27ae60,color:#fff
+    style TO_P2a fill:#555,stroke:#333,color:#fff
     style OP_DHGEN fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_TFIT1 fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_XOR fill:#2ecc71,stroke:#27ae60,color:#fff
@@ -67,8 +71,8 @@ graph LR
 
 ```mermaid
 graph LR
-    FROM_P1[/"from Phase 1: appboot Response"/] -->|Server DH PubKey| OP_DH(["DH_compute_key"])
-    DH_PRIV["Client DH PrivKey"] -->|from Phase 1| OP_DH
+    FROM_P1a[/"from Phase 1: Server DH PubKey"/] --> OP_DH(["DH_compute_key"])
+    FROM_P1b[/"from Phase 1: Client DH PrivKey"/] --> OP_DH
     OP_DH --> DH_SHARED["DH Shared Secret 1024-bit"]
     FROM_P3[/"from Phase 3: session_bind upper 16B"/] --> OP_SHA2(["SHA384"])
     OP_SHA2 --> KEY48["48B Key 384-bit"]
@@ -77,7 +81,8 @@ graph LR
     OP_HMAC --> NEW_ENC["new enc_key 128-bit"]
     OP_HMAC --> NEW_SIGN["new sign_key = bootstrap_key 256-bit"]
 
-    style FROM_P1 fill:#555,stroke:#333,color:#fff
+    style FROM_P1a fill:#555,stroke:#333,color:#fff
+    style FROM_P1b fill:#555,stroke:#333,color:#fff
     style FROM_P3 fill:#555,stroke:#333,color:#fff
     style OP_DH fill:#2ecc71,stroke:#27ae60,color:#fff
     style DH_SHARED fill:#2ecc71,stroke:#27ae60,color:#fff
