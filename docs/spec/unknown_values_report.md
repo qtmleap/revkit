@@ -195,28 +195,28 @@ HMAC フックからは個別に特定できなかった。
 2. `FpsMgkAppIdAuthData::getAuthData()` @ `0x000284bc` をフックして apphmac を直接キャプチャ
 3. apphmac が `HMAC(PSK, devicetoken)` かどうかをテスト (Frida で入力 216B の HMAC コールを監視)
 
-### appboot sign key (32B)
+### ~~appboot sign key (32B)~~ → **解決済み: Keychain キャッシュ**
 
 | 項目 | 値 |
 |------|-----|
 | キャプチャ値 | `38b2030dd55e3367290213ca0d16ee079524ccd24fb7221a52145fb6de016fd8` |
 | 用途 | appboot リクエスト全体 (8549B) の HMAC-SHA256 署名 |
-| **固定/可変** | **可変 (導出値)** — セッションごとに異なる可能性 |
-| **再利用可否** | **不可** — 導出元が不明なため再現できない |
-| **Python 再現** | **不可** — 導出ロジック未解明 |
-| **追加調査が必要** | ★★ apphmac と並ぶブロッカー |
+| **固定/可変** | **~~可変 (導出値)~~** → **前回セッションの Phase 2 sign key (Keychain キャッシュ)** |
+| **再利用可否** | 初回 appboot には不要 |
+| **Python 再現** | **不要** — フレッシュ appboot では sign_key_1 で署名する |
+| **追加調査** | **不要** |
 
-**既知の事実:**
-- Phase 3 KDF の出力 (sign_key_1 = `d45443fa...`) ではない
-- Phase 2 KDF の出力 (session sign key = `8887ddf1...`) でもない
-- `SHA256(sign_key_1)` でもない
-- キャッシュクリア後の再起動でも同じ値が出現 → ESN/MGK から決定的に導出されている可能性
-- Phase 2 (DH) の前に使用されている → DH 共有秘密には依存しない
+**2026-04-09 解決:**
+Netflix アプリの全データ (Library/, Documents/, tmp/) を削除してクリーンな初回起動を
+キャプチャした結果、`38b2030d` も `8887ddf1` も出現しなかった。
+これらは**前回の appboot で Phase 2 KDF から導出されたセッション鍵が iOS Keychain に
+キャッシュされていた**値に過ぎないことが確定。
 
-**調査方針:**
-1. Phase 3 KDF の中間値やバリエーションを網羅的にテスト
-2. `HMAC(sign_key_1, ESN)`, `HMAC(session_bind, ESN)` 等の候補を Python で計算し照合
-3. MslClient.framework の appboot リクエスト組立関数をデコンパイルし、署名鍵の取得パスを追跡
+フレッシュ appboot (初回起動 / キャッシュなし) では:
+1. Phase 3 KDF → sign_key_1 で appboot リクエストに署名
+2. DH 鍵交換 → Phase 2 KDF → 新セッション鍵を導出
+3. 新セッション鍵を Keychain にキャッシュ
+4. 以降のリクエストはキャッシュされたセッション鍵で署名
 
 ---
 
@@ -292,9 +292,10 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 | 値 | 固定/可変 | 再利用 | 調査優先度 | 調査内容 |
 |----|----------|--------|-----------|---------|
 | **apphmac** (32B) | 毎回可変 | 不可 | ★★ 最高 | 導出ロジック (鍵 + 入力) の解明 |
-| **appboot sign key** (32B) | 可変 (導出値) | 不可 | ★★ 最高 | 導出元の特定。Phase 3 中間値？ |
 | **devicetoken** (216B) | 可変 | 不明 | ★ 高 | 有効期限。NRM API 仕様。再利用可能期間 |
+| ~~**appboot sign key**~~ | ~~解決済み~~ | — | — | Keychain キャッシュ。初回は sign_key_1 で代替 |
 
-> **結論**: apphmac と appboot sign key の導出ロジックを解明しない限り、
-> Python 単体で appboot リクエストを構築・署名することは不可能。
-> これが現時点での最大のブロッカーである。
+> **結論**: apphmac の導出ロジックが残る唯一の最大ブロッカー。
+> appboot sign key は Keychain キャッシュと判明し、フレッシュ appboot では
+> sign_key_1 (Phase 3 KDF 出力) で署名すればよい。
+> devicetoken は有効期限が不明だが、キャプチャ値を渡すことで当面は動作する可能性がある。
