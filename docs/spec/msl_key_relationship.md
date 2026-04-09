@@ -325,33 +325,23 @@ MSL メッセージには2種類の HMAC 署名が付与される:
 
 ---
 
-## 7. 未解明ポイント
+## 7. 解決済みの疑問
 
-```mermaid
-graph TD
-    Q2["bootstrap_key の導出元"]
-    Q3["key 33.6 の構成方法"]
-
-    Q2 --> H4["仮説A: ホワイトボックスチェーン出力"]
-    Q2 --> H5["仮説B: FairPlay / デバイストークン由来"]
-
-    Q3 --> H6["RSA 暗号化は未使用 (実証済み)"]
-    Q3 --> H7["XOR(nonce) エンコード解明済み、平文内 TFIT 変換が未解明"]
-    Q3 --> H8["サイズ: 144B or 352B (DH 公開鍵 128B から TFIT 拡張)"]
-
-    style Q2 fill:#fa0,stroke:#a60,color:#fff
-    style Q3 fill:#fa0,stroke:#a60,color:#fff
-```
-
-### 解決済みの疑問
-
-- ~~enc_key_0 / sign_key_0 の由来~~ → HMAC-SHA384(48B鍵, 0x00 || DH共有秘密) で導出 (Phase 2 で確認)
+- ~~enc_key_0 / sign_key_0 の由来~~ → MGK = TFIT-WB-AES-128-ECB(SHA384(ESN)) (Phase 0 で確認)
 - ~~48B HMAC 鍵の由来~~ → **SHA384(session_bind[:16])** で導出。session_bind は Phase 3 KDF の中間値
 - ~~bootstrap_key の由来~~ → **Phase 2 KDF 出力の sign_key (dh_kdf_out[16:48])** と同一
 - ~~HKDF で導出?~~ → NFWebCrypto に HKDF エクスポートなし。HMAC-SHA384 を使用
 - ~~kAppBootKey で DH 公開鍵を RSA 暗号化?~~ → RSA_public_encrypt / EVP_PKEY_encrypt ともに未呼び出し
+- ~~key 33.6 の構成方法~~ → CBOR ヘッダ (128B) + TFIT(DH_pub, 8ブロック) (128B) + MGK ペア (32B) + リクエスト固有 (64B)、全体を XOR(nonce) でエンコード
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
-- ~~PSK 2箇所目直前の 256-bit データ~~ → 調査優先度低 (鍵フローに影響なし)
+
+## 8. 残りの未解明ポイント
+
+| 項目 | 詳細 |
+|------|------|
+| key 33.6 CBOR ヘッダ (128B) | Argo バイナリ内で構築。固定値だが構成ロジックは NFWebCrypto の外 |
+| key 33.6 リクエスト固有領域 (64B) | メッセージ ID / タイムスタンプ。構築ロジックは Argo バイナリ内 |
+| 144B バリアントの構造 | 352B と異なる短縮形式。map(6) vs map(7)。詳細未調査 |
 
 ### Tweak フックの制約
 
