@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from netflix_msl.constants import RSA_KEYPAIR_ID
+from netflix_msl.constants import IOS_KEY336_DEVICE_HEADER, RSA_KEYPAIR_ID
 
 
 class NetflixCrypto:
@@ -277,7 +277,9 @@ class NetflixCrypto:
         Returns:
             48 バイトの HMAC-SHA384 鍵
         """
-        session_check = hmac_mod.new(psk, enc_key_0 + sign_key_0, hashlib.sha256).digest()
+        session_check = hmac_mod.new(
+            psk, enc_key_0 + sign_key_0, hashlib.sha256
+        ).digest()
         session_bind = hmac_mod.new(session_check, nonce, hashlib.sha256).digest()
         return hashlib.sha384(session_bind[:16]).digest()
 
@@ -306,6 +308,114 @@ class NetflixCrypto:
         enc_key = digest[:16]
         sign_key = digest[16:48]
         return enc_key, sign_key
+
+    # ---- key 33.6 scheme_data 構築 (Scheme 3 / appboot) ----
+
+    @staticmethod
+    def build_key336_scheme_data(
+        session_region: bytes,
+        nonce_7b: bytes,
+        s1: bytes,
+        s2: bytes,
+        s3: bytes,
+        k9_xor_nonce: bytes,
+    ) -> tuple[bytes, bytes]:
+        """iOS appboot の key 33.6 scheme_data (352B) を構築し XOR 暗号化して返す.
+
+        key 33.6 の 352B plaintext は以下の構成を持つ (CBOR truncated stream):
+
+          bytes [0:128]   : 固定デバイスヘッダー (DEVICE_HEADER_128B 定数)
+          bytes [128:300] : セッション領域 (172B) — TFIT 暗号化 DH 公開鍵 + セッション状態
+          bytes [300:307] : nonce_7b — 7B ランダム nonce (N)
+          bytes [307:316] : s1 — 9B セッション固定セパレータ
+          bytes [316:323] : N' — nonce 変形 1: N[0]^=0xf4, N[1]^=0x1b, N[2:7] 同一
+          bytes [323:332] : s2 — 9B セッション固定セパレータ
+          bytes [332:339] : N'' — nonce 変形 2: N[0]^=0xf4, N[1]^=0x1b, N[3]^=0x18,
+                                  N[4]^=0x1b, N[2,5,6] 同一
+          bytes [339:348] : s3 — 9B セパレータ (byte[5] がリクエスト毎カウンタ)
+          bytes [348:352] : tail — N[:4] XOR 0xf31c071f
+
+        XOR 暗号化: ciphertext[i] = plaintext[i] ^ k9_xor_nonce[i % 16]
+        (k9_xor_nonce は key 33.9 の 16B XOR nonce)
+
+        引数:
+            session_region:  172B セッション領域。Frida キャプチャまたは TFIT エミュレーション
+                             で取得した DH 鍵 + セッション状態バイト列。
+                             sessions_region = pt[128:300] (XOR 復号後の値)
+            nonce_7b:        7B ランダム per-request nonce (N)。毎リクエストで os.urandom(7)。
+            s1:              9B セッション固定セパレータ (pt[307:316])
+            s2:              9B セッション固定セパレータ (pt[323:332])
+            s3:              9B セパレータ (pt[339:348])。byte[5] はリクエスト毎に変化する
+                             不透明な CBOR カウンタ値 — セッション初期値を起点に単調増加。
+            k9_xor_nonce:    16B per-request XOR nonce (key 33.9)。毎リクエストで生成。
+
+        Returns:
+            (scheme_data_enc, k9_xor_nonce)
+              scheme_data_enc : 352B XOR 暗号化済み scheme_data (key 33.6 の値)
+              k9_xor_nonce    : 入力をそのまま返す (key 33.9 として使用する 16B)
+
+        Raises:
+            ValueError: session_region が 172B でない、または nonce が 7B/16B でない場合
+
+        ---
+        固定デバイスヘッダー (DEVICE_HEADER_128B):
+            165/180 の 352B appboot サンプルで共通の 128B 定数。
+            残り 15 サンプルは異なるヘッダーを持つ (デバイス/ビルド依存)。
+            標準的な iPhone デバイスではこの定数を使用する。
+
+        セッション領域の取得方法:
+            (a) Frida/Tweak キャプチャ: AppbootKeyExtract Tweak で live デバイスから取得
+                session_region = captured_pt[128:300]
+            (b) TFIT エミュレーション: tools/emulate_tfit.py で NFWebCrypto.framework
+                バイナリから WB-AES テーブルを読み込み DH 公開鍵を暗号化
+
+        nonce XOR 変形マスク (実測値):
+            n1^n2 = f4 1b 00 00 00 00 00  (165 サンプル全てで一致)
+            n1^n3 = f4 1b 00 18 1b 00 00  (165 サンプル全てで一致)
+            tail  = N[:4] XOR f3 1c 07 1f  (165 サンプル全てで一致)
+        """
+        # --- 引数検証 ---
+        if len(session_region) != 172:
+            raise ValueError(
+                f"session_region must be 172 bytes, got {len(session_region)}"
+            )
+        if len(nonce_7b) != 7:
+            raise ValueError(f"nonce_7b must be 7 bytes, got {len(nonce_7b)}")
+        if len(s1) != 9 or len(s2) != 9 or len(s3) != 9:
+            raise ValueError("s1, s2, s3 must each be 9 bytes")
+        if len(k9_xor_nonce) != 16:
+            raise ValueError(f"k9_xor_nonce must be 16 bytes, got {len(k9_xor_nonce)}")
+
+        # --- nonce 変形 (CBOR コンテキスト差分マスク) ---
+        # n1 = raw nonce N (7B)
+        # n2 = N with bytes 0,1 XORed by 0xf4, 0x1b (CBOR int encoding 差分)
+        # n3 = N with bytes 0,1 XORed by 0xf4,0x1b and bytes 3,4 XORed by 0x18,0x1b
+        _N2_MASK = bytes([0xF4, 0x1B, 0x00, 0x00, 0x00, 0x00, 0x00])
+        _N3_MASK = bytes([0xF4, 0x1B, 0x00, 0x18, 0x1B, 0x00, 0x00])
+        _TAIL_MASK = bytes([0xF3, 0x1C, 0x07, 0x1F])
+
+        n = nonce_7b
+        n2 = bytes(a ^ b for a, b in zip(n, _N2_MASK))
+        n3 = bytes(a ^ b for a, b in zip(n, _N3_MASK))
+        tail = bytes(a ^ b for a, b in zip(n[:4], _TAIL_MASK))
+
+        # --- 平文 352B を組み立て ---
+        plaintext = (
+            IOS_KEY336_DEVICE_HEADER  # [0:128]   定数ヘッダー
+            + session_region  # [128:300] セッション領域
+            + n  # [300:307] nonce copy 1
+            + s1  # [307:316] separator 1
+            + n2  # [316:323] nonce copy 2
+            + s2  # [323:332] separator 2
+            + n3  # [332:339] nonce copy 3
+            + s3  # [339:348] separator 3 (per-req counter)
+            + tail  # [348:352] tail
+        )
+        assert len(plaintext) == 352, f"plaintext length {len(plaintext)} != 352"
+
+        # --- XOR 暗号化 (key 33.9 で平文を XOR) ---
+        scheme_data_enc = bytes(plaintext[i] ^ k9_xor_nonce[i % 16] for i in range(352))
+        return scheme_data_enc, k9_xor_nonce
 
     # ---- Scheme 3/5 (DH) 鍵取り込み ----
 
