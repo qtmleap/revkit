@@ -3,183 +3,167 @@
 作成日: 2026-04-09
 更新日: 2026-04-10
 
-Python で appboot → MSL 認証を実行するエミュレータの実装状況。
+---
+
+## 1. appboot フローチャート
+
+```mermaid
+flowchart TD
+    START([Python appboot 開始]) --> ESN[ESN を入力]
+    
+    ESN --> TFIT["Phase 0: TFIT エミュレーション<br/>SHA384(ESN) → TFIT-WB-AES<br/>→ enc_key_0 (16B) + sign_key_0 (32B)"]
+    TFIT --> KDF["Phase 3: KDF チェーン<br/>HMAC-SHA256 × 6段<br/>→ enc_key_1, sign_key_1, session_bind"]
+    KDF --> DH["DH 鍵ペア生成<br/>p=Netflix固有1024bit, g=5<br/>→ dh_pub_key (128B), dh_priv_key (128B)"]
+    
+    DH --> EAD_BUILD["entity_auth_data 構築 (CBOR)"]
+    DH --> KRD_BUILD["key_request_data 構築 (CBOR)"]
+    
+    subgraph ead ["entity_auth_data (平文 CBOR, ~467B)"]
+        EAD_BUILD --> EAD_SCHEME["key 30: 'MGK_APPID' ✅ 固定"]
+        EAD_BUILD --> EAD_ESN["key 35.3: ESN ✅ 固定"]
+        EAD_BUILD --> EAD_APPID["key 35.appid: UUID ✅ 固定"]
+        EAD_BUILD --> EAD_AKV["key 35.appkeyversion: 1 ✅ 固定"]
+        EAD_BUILD --> EAD_APPHMAC["key 35.apphmac: 32B ❌ 導出元不明"]
+        EAD_BUILD --> EAD_DT["key 35.devicetoken: 216B ⚠️ 取得方法は判明<br/>(x-netflix-deviceidtoken Base64デコード)"]
+    end
+    
+    subgraph krd ["key_request_data (CBOR, ~499B)"]
+        KRD_BUILD --> KRD_SD["key 6: scheme_data 352B ✅ 構築済み"]
+        KRD_BUILD --> KRD_ID["key 8: ESN ✅"]
+        KRD_BUILD --> KRD_NONCE["key 9: XOR nonce 16B ✅"]
+        KRD_BUILD --> KRD_STATUS["key 7: empty ✅"]
+    end
+    
+    subgraph sd ["scheme_data 352B の内部構造"]
+        KRD_SD --> SD_HDR["[0:135] 固定 CBOR ヘッダー ✅"]
+        KRD_SD --> SD_TFIT["[135:263] TFIT(DH_pub) 128B ✅<br/>8 block WB-AES-128-ECB"]
+        KRD_SD --> SD_CFB["[263:352] CFB-chain CBOR テール 89B ✅<br/>AUTHENTICATED_DH + timestamp + flags"]
+        KRD_SD --> SD_XOR["全体を key33.9 nonce で XOR ✅"]
+    end
+    
+    EAD_APPHMAC --> SIGN["HMAC-SHA256(sign_key_0, krd_bytes)<br/>→ 署名 32B ✅"]
+    EAD_DT --> SIGN
+    KRD_SD --> SIGN
+    
+    SIGN --> MSG["CBOR メッセージ組立<br/>{34: ead, 33: krd, 16: sig}<br/>+ payload chunk ✅"]
+    
+    MSG --> POST["POST appboot.netflix.com ✅<br/>HTTP 200 返却"]
+    
+    POST --> SERVER_PARSE{"サーバー:<br/>CBOR パース"}
+    SERVER_PARSE -->|"パース失敗"| EC1_PARSE["errorcode=1<br/>'Error parsing MSL encodable'<br/>✅ 解決済み (Netflix CBOR エンコーダ)"]
+    SERVER_PARSE -->|"パース成功"| SERVER_EAD{"サーバー:<br/>entity_auth_data 検証"}
+    
+    SERVER_EAD -->|"apphmac/devicetoken 不正"| EC6["errorcode=6<br/>'App Id Validation failed'<br/>❌ ← 現在ここで詰まっている"]
+    SERVER_EAD -->|"検証成功"| SERVER_TFIT{"サーバー:<br/>scheme_data TFIT 復号"}
+    
+    SERVER_TFIT -->|"復号失敗"| EC1_DECRYPT["errorcode=1<br/>'Error decrypting data with cryptex'<br/>⚠️ real ead 使用時はここに到達"]
+    SERVER_TFIT -->|"復号成功"| SERVER_DH["サーバー:<br/>DH 公開鍵抽出 + 共有秘密計算"]
+    
+    SERVER_DH --> RESPONSE["appboot レスポンス<br/>server_scheme_data + nonce<br/>+ x-netflix-deviceidtoken ヘッダ"]
+    
+    RESPONSE --> PHASE2["Phase 2: DH 共有秘密 → セッション鍵<br/>✅ 実装済み (テスト通過)"]
+    PHASE2 --> MSL["MSL 暗号化通信開始"]
+    
+    style EC6 fill:#e74c3c,stroke:#c0392b,color:#fff
+    style EC1_DECRYPT fill:#e67e22,stroke:#d35400,color:#fff
+    style EC1_PARSE fill:#27ae60,stroke:#229954,color:#fff
+    style EAD_APPHMAC fill:#e74c3c,stroke:#c0392b,color:#fff
+    style EAD_DT fill:#f39c12,stroke:#e67e22,color:#fff
+    style TFIT fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DH fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style POST fill:#2ecc71,stroke:#27ae60,color:#fff
+    style MSG fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SD_HDR fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SD_TFIT fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SD_CFB fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SD_XOR fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SERVER_PARSE fill:#3498db,stroke:#2980b9,color:#fff
+    style SERVER_EAD fill:#3498db,stroke:#2980b9,color:#fff
+    style SERVER_TFIT fill:#3498db,stroke:#2980b9,color:#fff
+    style SERVER_DH fill:#3498db,stroke:#2980b9,color:#fff
+    style PHASE2 fill:#2ecc71,stroke:#27ae60,color:#fff
+```
+
+### 凡例
+
+- 🟢 緑: 実装済み・動作確認済み
+- 🔴 赤: ブロッカー (未解決)
+- 🟠 オレンジ: 到達はしたが未解決
+- 🟡 黄: 取得方法は判明だが未検証
+- 🔵 青: サーバー側処理
 
 ---
 
-## 1. 全体フロー
+## 2. 現在の壁
+
+### 壁 1: apphmac (32B) の値が作れない → errorcode=6
 
 ```
-ESN (デバイス固有)
-  │
-  ├─ Phase 0: TFIT-WB-AES → enc_key_0, sign_key_0 (MGK)
-  ├─ Phase 3: KDF チェーン → enc_key_1, sign_key_1, session_bind
-  ├─ DH 鍵ペア生成
-  ├─ entity_auth_data 構築 (ESN, appid, apphmac, devicetoken)  ← ★ ここで詰まっている
-  ├─ scheme_data 352B 構築 (TFIT暗号化 DH + CFB-chain CBOR)   ← ★ ここで詰まっている
-  ├─ CBOR メッセージ構築 + HMAC署名
-  ├─ POST appboot.netflix.com/{ESN_PREFIX}
-  ├─ レスポンス解析 (server DH pub, nonce, x-netflix-deviceidtoken)
-  ├─ Phase 2: DH 共有秘密 → HMAC-SHA384 → セッション鍵
-  └─ MSL 通信開始
+entity_auth_data の中の "apphmac" フィールドに入れる 32 バイトの値がわからない。
+
+分かっていること:
+  - 32B の raw bytes (Base64文字列ではない)
+  - サーバーが検証する (ランダム値は拒否される)
+  - セッション内では安定、セッション間で変化
+  - HMAC/SHA256/HKDF/TFIT の既知の組み合わせでは導出できなかった
+  - FpsMgkAppIdAuthData オブジェクトの this+0xe8 に格納される
+
+分かっていないこと:
+  - 何から計算されるか (導出式)
+  - this+0xe8 に誰が何を書き込むか
+
+回避策:
+  - 4/8キャプチャの real ead (apphmac含む) を使えば ec=6 は通過する
+  - ただし根本解決ではない
 ```
 
-## 2. 現在のブロッカー: 2 つのエラー
-
-### ブロッカー 1: errorcode=6 "App Id Validation failed"
-
-**原因:** entity_auth_data の `apphmac` フィールド (32B) の値が不正。
-
-**証拠:**
-- real ead (4/8キャプチャ) + fresh krd → **errorcode=1** (ec=6 を通過!)
-- our ead (Python生成) + any krd → **errorcode=6** (App Id 検証失敗)
-
-つまり CBOR 構造やエンコーディングは正しいが、**apphmac の 32B 値が間違っている。**
-
-**apphmac (32B) について分かっていること:**
-- entity_auth_data 内の必須フィールド (省略すると ec=1 パースエラー)
-- 32B の raw bytes (Base64 文字列ではない)
-- 241 リクエスト中 67 ユニーク値 → セッション可変だが一定期間安定
-- devicetoken (216B) とは別の値 (同一セッションで devicetoken=216B, apphmac=32B)
-- RE で `getAuthData()` (0x284bc) が `this+0xe8` から読み出すことは判明
-- しかし `this+0xe8` に何がセットされるか、32B の導出元は不明
-- HMAC/SHA256/HKDF/TFIT の全組み合わせを試したが一致なし
-
-**apphmac (32B) について分かっていないこと:**
-- 導出式 (何の入力から何の関数で計算されるか)
-- `this+0xe8` に値をセットするコードパス (setApphmac の入力が何か)
-
-### ブロッカー 2: errorcode=1 "Error decrypting data with cryptex"
-
-**原因:** サーバーが scheme_data (key 33.6) の TFIT 暗号化を復号できない。
-
-**証拠:**
-- real ead + real krd (リプレイ) → errorcode=1
-- real ead + fresh krd (新 DH) → errorcode=1
-- 両方とも同じエラー → **DH 鍵の鮮度ではなく TFIT 暗号化自体の問題**
-
-**考えられる原因:**
-1. サーバー側 AES 鍵がローテーションされた (アプリバージョン 15.48.1 のキャプチャが古い)
-2. TFIT エミュレーション出力がサーバーの期待と微妙に異なる
-3. scheme_data 352B の CFB-chain エンコーディングが不正
-4. PKCS#7 パディングの問題
-
-**注意:** 4/8 の real krd も ec=1 を返すため、**キャプチャ時点で既にサーバー鍵が異なっていた**
-可能性がある。あるいはリプレイ保護として DH 鍵のタイムスタンプを検証している。
-
-## 3. エラー遷移の全履歴
-
-| 段階 | テスト内容 | エラー | 意味 |
-|------|----------|--------|------|
-| 1 | 標準 cbor2 エンコード | ec=1 ic=100000 "Error parsing MSL encodable" | CBOR パース失敗 |
-| 2 | Netflix カスタム CBOR | ec=6 ic=204060 "App Id Validation failed" | パース成功、ead 検証失敗 |
-| 3 | real ead + fresh krd | **ec=1 ic=208001 "Error decrypting data with cryptex"** | **ead 通過、TFIT 復号失敗** |
-| 4 | real ead + real krd (リプレイ) | ec=1 ic=208001 "Error decrypting data with cryptex" | 同上 (リプレイでも) |
-
-**現在地は段階 3:** entity_auth_data を正しく構築できれば TFIT 復号段階に進める。
-
-## 4. 実装済み (動作確認済み)
-
-| コンポーネント | ファイル | テスト状態 |
-|--------------|---------|-----------|
-| TFIT-WB-AES MGK 導出 | `tools/emulate_tfit.py` | ✅ ライブキャプチャと完全一致 |
-| Phase 3 KDF (6段 HMAC チェーン) | `crypto.py:kdf_renew()` | ✅ 13/13 テスト PASS |
-| Phase 2 KDF (HMAC-SHA384) | `crypto.py:derive_initial_session_keys()` | ✅ テストベクトル一致 |
-| 48B key = SHA384(session_bind[:16]) | `crypto.py:derive_hmac384_key()` | ✅ ライブ確認 |
-| DH 鍵生成/共有秘密 | `crypto.py:generate_dh_keypair()` | ✅ ラウンドトリップ検証 |
-| Netflix カスタム CBOR エンコーダ | `cbor_encoder.py:nf_cbor_encode()` | ✅ ead 467B byte-for-byte 一致 |
-| entity_auth_data CBOR 構造 | `nf_cbor_encode()` | ✅ real 値を入れれば 467B 完全一致 |
-| scheme_data 352B 構築 | `crypto.py:build_scheme_data_352()` | ✅ 135B header + 128B TFIT + 89B CFB |
-| HMAC-SHA256 署名 (sign_key_0) | `test_appboot_e2e.py` | ✅ real と一致確認 |
-| HTTP POST + レスポンス解析 | `test_appboot_e2e.py` | ✅ サーバー到達 |
-| 二重 CBOR メッセージ (msg1+msg2) | `test_appboot_e2e.py` | ✅ payload chunk 追加 |
-
-## 5. entity_auth_data の構造 (確定)
-
-暗号化されていない平文 CBOR:
+### 壁 2: TFIT 復号がサーバーで失敗する → errorcode=1
 
 ```
-key 30: "MGK_APPID"                              ← 固定
-key 35: {
-  3:              ESN (string, 84 chars)          ← 固定 (デバイス毎)
-  "apphmac":      bytes(32B)                      ← ★ 可変、導出元不明
-  "appid":        "a2becfec-b286-...-903a384caee6" ← 固定
-  "appkeyversion": 1                              ← 固定
-  "devicetoken":  bytes(216B)                     ← 可変、x-netflix-deviceidtoken の Base64 デコード
-}
+壁 1 を real ead で回避しても、次に errorcode=1 で止まる。
+
+分かっていること:
+  - "Error decrypting data with cryptex" = サーバーが scheme_data を復号できない
+  - 4/8 キャプチャの real krd をリプレイしても同じエラー
+  - つまり 4/8 時点の TFIT 暗号化データも今のサーバーでは復号できない
+
+分かっていないこと:
+  - サーバー側の TFIT/AES 鍵がいつローテーションされたか
+  - 現在のサーバー鍵に対応する TFIT テーブルが何か
+  - リプレイ保護 (タイムスタンプ検証) が原因の可能性
 ```
 
-- **4 つの固定フィールド:** scheme, ESN, appid, appkeyversion
-- **devicetoken (216B):** サーバー発行の `x-netflix-deviceidtoken` ヘッダを Base64 デコード
-  NFSharedStore App Group コンテナにキャッシュ (`DEVICE_ID_TOKEN` キー)
-- **apphmac (32B):** ★ 導出元不明。`FpsMgkAppIdAuthData.this+0xe8` から読み出される
+---
 
-## 6. scheme_data 352B の構造 (確定)
+## 3. 実装済みコンポーネント一覧
 
-```
-[0:135]   固定 CBOR ヘッダー (IOS_SCHEME_DATA_HEADER_135B)
-[135:263] TFIT-WB-AES-128-ECB(DH_pub_key) — 8 blocks = 128B
-[263:352] CFB-chain XOR エンコードされた CBOR テール (89B)
-```
+| # | コンポーネント | 状態 | 検証方法 |
+|---|--------------|------|---------|
+| 1 | ESN → MGK (TFIT エミュレーション) | ✅ | ライブキャプチャ値と完全一致 |
+| 2 | Phase 3 KDF (6段 HMAC チェーン) | ✅ | 13/13 テスト PASS |
+| 3 | Phase 2 KDF (HMAC-SHA384) | ✅ | テストベクトル一致 |
+| 4 | DH 鍵生成/共有秘密計算 | ✅ | ラウンドトリップ検証 |
+| 5 | Netflix カスタム CBOR エンコーダ | ✅ | real ead と 467B byte-for-byte 一致 |
+| 6 | entity_auth_data CBOR 構造 | ✅ | 正しい値を入れれば real と一致 |
+| 7 | scheme_data 352B 構築 | ✅ | CFB-chain 復号で構造確認済み |
+| 8 | HMAC-SHA256 署名 | ✅ | real signature と一致 |
+| 9 | HTTP POST + レスポンス解析 | ✅ | サーバー到達、HTTP 200 |
+| 10 | apphmac の正しい値 | ❌ | 導出元不明 |
+| 11 | TFIT 暗号化がサーバーで復号可能 | ❌ | real krd リプレイでも失敗 |
 
-CFB 復号後のテール CBOR:
-```
-key 30: "AUTHENTICATED_DH"   ← 固定
-key 22: message_id (uint64)  ← 可変 (ランダム)
-key 40: false                ← 固定
-key 21: true                 ← 固定
-key 24: timestamp (uint64)   ← 可変 (UNIX秒)
-+ PKCS#7 padding (7 bytes of 0x07)
-```
+---
 
-XOR エンコード: `CFB[0] = CBOR[0] XOR TFIT[-1]`, `CFB[n] = CBOR[n] XOR CFB[n-1]`
-全体がさらに key 33.9 ノンス (16B) で XOR される。
-
-## 7. 次のアクション
-
-### 優先度 1: apphmac (32B) の導出元を解明
-
-`FpsMgkAppIdAuthData.this+0xe8` に値をセットする全コードパスを追跡:
-- Path A: `_updateEntityAuthDeviceIdToken` → `setApphmac()` → `this+0xe8`
-- `[self deviceIdToken]` が返す値は Base64 文字列 (288 chars) だが、CBOR には 32B が入る
-- `getAuthData()` 内で Base64 デコード以外の変換が行われている可能性
-
-### 優先度 2: errorcode=1 TFIT 復号エラーの調査
-
-real krd のリプレイでも ec=1 が出るため:
-- サーバー側 TFIT/AES 鍵のローテーションを確認
-- 最新アプリバージョンで新しい TFIT テーブルが使われていないか確認
-- Frida で実機の appboot 成功時の scheme_data を完全キャプチャし、我々の出力と比較
-
-## 8. テスト実行方法
+## 4. テスト実行方法
 
 ```bash
 # KDF 回帰テスト (オフライン、13/13 PASS)
 uv run python tools/verify_full_key_chain.py
 
-# E2E appboot テスト (サーバー接続、現在 ec=6)
+# E2E appboot テスト (サーバー接続)
 uv run python tools/test_appboot_e2e.py --no-proxy
 
 # deviceIdToken 指定
 uv run python tools/test_appboot_e2e.py --no-proxy --device-id-token 'Base64文字列'
-```
-
-## 9. ファイル構成
-
-```
-src/netflix_msl/
-  ├── ios_client.py       # E2E オーケストレーター (iOSMslClient)
-  ├── crypto.py           # 暗号プリミティブ (DH, KDF, TFIT, HMAC, AES)
-  ├── cbor_encoder.py     # Netflix カスタム CBOR エンコーダ + nf_cbor_encode()
-  ├── cbor_decoder.py     # CBOR MSL メッセージパーサー
-  ├── constants.py        # バイナリ定数 (DH params, PSK, 署名鍵, AppID, CBOR headers)
-  └── client.py           # Chrome/Widevine MSL クライアント (参考実装)
-
-tools/
-  ├── test_appboot_e2e.py         # E2E appboot テスト (★ メインテストスクリプト)
-  ├── verify_full_key_chain.py    # KDF 回帰テスト (13/13 PASS)
-  └── emulate_tfit.py             # TFIT WB-AES Unicorn エミュレータ
-
-packages/tweak/
-  └── NetflixEntityAuth/          # ランタイムキャプチャ Tweak (FpsMgkAppIdAuthData フック)
 ```
