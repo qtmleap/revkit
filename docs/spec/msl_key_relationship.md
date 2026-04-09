@@ -51,16 +51,20 @@ graph LR
     KEY336_PT --> OP_XOR
     OP_XOR --> KEY336_ENC["key 33.6 ciphertext"]
     KEY336_ENC -->|POST /appboot| SERVER["Netflix Server"]
-    SERVER --> DH_RESP["appboot Response key 33"]
-    DH_RESP --> TO_P2b[/"to Phase 2"/]
-    ECC_BOOT["kAppBootEccKey P-256"] -.->|verify?| DH_RESP
+    SERVER --> RESP["appboot Response key 33"]
+    RESP --> RESP_6["key 33.6 Server DH Response 96B"]
+    RESP --> RESP_9["key 33.9 Server nonce 16B"]
+    RESP_6 --> TO_P2b[/"to Phase 2"/]
+    ECC_BOOT["kAppBootEccKey P-256"] -.->|verify?| RESP
 
     style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
     style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
     style ECC_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
     style NONCE_SRV fill:#2ecc71,stroke:#27ae60,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
-    style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
+    style RESP fill:#3498db,stroke:#2980b9,color:#fff
+    style RESP_6 fill:#3498db,stroke:#2980b9,color:#fff
+    style RESP_9 fill:#3498db,stroke:#2980b9,color:#fff
     style DH_PUB fill:#2ecc71,stroke:#27ae60,color:#fff
     style DH_PRIV fill:#2ecc71,stroke:#27ae60,color:#fff
     style TO_P2a fill:#555,stroke:#333,color:#fff
@@ -80,7 +84,7 @@ graph LR
 
 ```mermaid
 graph LR
-    FROM_P1a[/"from Phase 1: Server DH PubKey"/] --> OP_DH(["DH_compute_key"])
+    FROM_P1a[/"from Phase 1: key 33.6 Server DH Response"/] --> OP_DH(["DH_compute_key"])
     FROM_P1b[/"from Phase 1: Client DH PrivKey"/] --> OP_DH
     OP_DH --> DH_SHARED["DH Shared Secret 1024-bit"]
     FROM_P3[/"from Phase 3: session_bind upper 16B"/] --> OP_SHA2(["SHA384"])
