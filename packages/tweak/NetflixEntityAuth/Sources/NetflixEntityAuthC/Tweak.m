@@ -83,6 +83,9 @@ static void writeBinFile(NSString *path, const uint8_t *data, size_t len) {
 // Reentrancy guard
 static volatile int g_inHook = 0;
 
+// Counter for large HMAC data dumps
+static int g_hmacDumpCount = 0;
+
 // ---------------------------------------------------------------------------
 // Opaque types (OpenSSL)
 // ---------------------------------------------------------------------------
@@ -148,6 +151,25 @@ static unsigned char *hook_HMAC(const EVP_MD *evp_md,
                              (const uint8_t *)d, n);
                 file_log(g_log_hmac, @"[NFXEntityAuth][HMAC] apphmac candidate saved to app tmp dir");
                 g_apphmacSaved = YES;
+            }
+
+            // Save large HMAC data blobs (> 1KB) — likely appboot request body
+            if (n > 1024) {
+                NSString *tmpDir = NSTemporaryDirectory();
+                int idx = __sync_fetch_and_add(&g_hmacDumpCount, 1);
+                NSString *dataPath = [tmpDir stringByAppendingPathComponent:
+                                      [NSString stringWithFormat:@"entityauth_hmac_blob_%03d_data.bin", idx]];
+                NSString *keyPath  = [tmpDir stringByAppendingPathComponent:
+                                      [NSString stringWithFormat:@"entityauth_hmac_blob_%03d_key.bin", idx]];
+                NSString *sigPath  = [tmpDir stringByAppendingPathComponent:
+                                      [NSString stringWithFormat:@"entityauth_hmac_blob_%03d_sig.bin", idx]];
+                writeBinFile(dataPath, (const uint8_t *)d, n);
+                writeBinFile(keyPath,  (const uint8_t *)key, (size_t)key_len);
+                writeBinFile(sigPath,  ret, 32);
+                file_log(g_log_hmac,
+                         [NSString stringWithFormat:
+                          @"[NFXEntityAuth][HMAC] large blob saved: idx=%d data=%zuB key=%dB",
+                          idx, n, key_len]);
             }
 
             g_inHook = 0;
