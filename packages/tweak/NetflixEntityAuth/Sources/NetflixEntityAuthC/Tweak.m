@@ -1216,20 +1216,10 @@ static void installNFWebCryptoHooks(void) {
             }
         }
 
-        if (nfwcBase != 0) {
-            // AppleWebCrypto::HKDF at file offset 0x11900
-            uintptr_t hkdfAddr = nfwcBase + 0x11900;
-            file_log(g_log_general,
-                     [NSString stringWithFormat:
-                      @"[NFXEntityAuth] AppleWebCrypto::HKDF addr=0x%lx — installing hook",
-                      (unsigned long)hkdfAddr]);
-            MSHookFunction((void *)hkdfAddr,
-                           (void *)hook_AppleWebCryptoHKDF,
-                           (void **)&orig_AppleWebCryptoHKDF);
-            file_log(g_log_general, @"[NFXEntityAuth] AppleWebCrypto::HKDF hooked");
-        } else {
-            file_log(g_log_general, @"[NFXEntityAuth] NFWebCrypto base not found — HKDF hook skipped");
-        }
+        // HKDF hook DISABLED — sret calling convention causes crash on some launches.
+        // HKDF input already captured: key=MGK(48B), ikm=PSK, info=Nonce.
+        // Formula: apphmac = HMAC-SHA256(HMAC-SHA256(MGK, PSK), Nonce)
+        file_log(g_log_general, @"[NFXEntityAuth] HKDF hook skipped (sret crash risk, data already captured)");
     }
 
     g_nfwcHooked = YES;

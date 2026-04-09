@@ -172,7 +172,9 @@ aa1b6089 d6c0b561 a8e520e7 96de27df
 | **Python 再現** | **可** (候補) — `HMAC-SHA256(HMAC-SHA256(MGK, PSK), Nonce)` |
 | **追加調査** | IosMGKAuthData コンストラクタで直接照合して最終確認 |
 
-**2026-04-09 発見: HKDF フックで導出式を特定**
+**2026-04-09 発見: HKDF フックで導出式を特定 + コンストラクタフック成功**
+
+### HKDF 入力 (キャプチャ済み)
 
 `AppleWebCrypto::HKDF` (NFWebCrypto @ offset `0x11900`) をフックし、以下の入力をキャプチャ:
 
@@ -187,7 +189,7 @@ HKDF(
 内部処理 (静的解析 + ランタイム確認):
 ```
 prk = HMAC-SHA256(key=MGK, data=PSK)     // Extract
-okm = HMAC-SHA256(key=prk, data=Nonce)   // Expand (= apphmac 候補)
+okm = HMAC-SHA256(key=prk, data=Nonce)   // Expand
 ```
 
 Python 計算結果:
@@ -196,20 +198,31 @@ prk = 6626cf896cb699d61fb42d242fe52f404d0867c379da777e3538bae7f35f3953
 okm = 4c142e4b82b3ad21e2dcdbcc007c27a4787adc0568959080b004b5daa5a7385a
 ```
 
-**根拠:**
-1. Phase 3 KDF より先に呼ばれる独立した計算
-2. 入力は全て既知の定数/導出可能値 (MGK + PSK + Nonce)
-3. 出力は 32B (apphmac フィールドと同サイズ)
-4. HMAC/SHA384/EVP_Digest のどの出力にも一致しない独立経路
-5. 他に apphmac に相当する 32B 値を生成する経路が存在しない
+### FpsMgkAppIdAuthData コンストラクタ (キャプチャ済み)
 
-**注意:** IosMGKAuthData コンストラクタ (MslClient @ base+0xd45c) が発火しなかったため、
-entity_auth_data 内の apphmac フィールド値との直接照合はまだ完了していない。
-Phase 3 KDF の HMAC(PSK, MGK) = `19def2f9...` は apphmac ではなく KDF の step1 である。
+**重要:** RE で `apphmac` と名付けられていた x5 引数は実際には **devicetoken** (216B protobuf)。
+
+```
+FpsMgkAppIdAuthData(
+  x1: mgkid       = "NFAPPL-02-IPHONE9=1-"          (ESN prefix)
+  x2: devtype     = "NFAPPL-02-IPHONE9=1-AD0455..."  (Full ESN)
+  x3: appid       = "a2becfec-b286-535c-b884-903a384caee6"
+  w4: appkeyversion = 1
+  x5: devicetoken = 216B protobuf (base64 encoded)   ← RE では apphmac と誤認
+  x6: webCrypto   = AppleWebCrypto*
+  x7: authGen     = SynchronizedCdmAuthGeneration*
+)
+```
+
+**結論:**
+- apphmac はコンストラクタ引数ではなく、`getAuthData()` (offset 0x284bc) 内部で
+  AppleWebCrypto を通じて計算される
+- HKDF(MGK, PSK, Nonce) = `4c142e4b...` がこの内部計算に該当する可能性が高い
+- ただし `getAuthData()` 内部の CBOR シリアライズを直接フックするまで最終確認は完了していない
 
 **確認手段:**
-1. appboot blob の暗号化本体をデコードして apphmac フィールドを抽出し照合
-2. IosMGKAuthData コンストラクタオフセットを再検証してフック発火を確認
+1. `getAuthData()` (MslClient offset 0x284bc) をフックして CBOR 出力内の apphmac フィールドを抽出
+2. appboot リクエスト CBOR をプロキシでキャプチャし apphmac フィールドを照合
 
 ### ~~appboot sign key (32B)~~ → **解決済み: Keychain キャッシュ**
 
