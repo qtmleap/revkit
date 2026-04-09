@@ -31,8 +31,10 @@ graph LR
     DH_P["DH p 1024-bit"] --> DH_GEN["DH 鍵ペア生成"]
     DH_G["DH g = 5"] --> DH_GEN
     DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
-    DH_PUB -.->|変換方法不明| KEY336_REQ["key 33.6 リクエスト 144B/352B"]
-    KEY336_REQ -->|POST /appboot| SERVER["Netflix サーバー"]
+    DH_PUB -->|TFIT-WB-AES-128-ECB 8ブロック| TFIT_DH["TFIT 暗号化 DH 公開鍵 128B"]
+    TFIT_DH --> KEY336_REQ["key 33.6 = CBOR + TFIT-DH + MGK + 固有データ"]
+    MGK["MGK (enc_key_0 + sign_key_0[:16])"] --> KEY336_REQ
+    KEY336_REQ -->|XOR nonce → POST /appboot| SERVER["Netflix サーバー"]
     SERVER --> DH_RESP["appboot レスポンス key 33"]
     ECC_BOOT["kAppBootEccKey ECDSA P-256"] -.->|署名検証?| DH_RESP
 
@@ -41,7 +43,9 @@ graph LR
     style ECC_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
-    style KEY336_REQ fill:#fa0,stroke:#a60,color:#fff
+    style TFIT_DH fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KEY336_REQ fill:#2ecc71,stroke:#27ae60,color:#fff
+    style MGK fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### Phase 2: 初期セッション鍵導出 (解明済み)
@@ -127,11 +131,9 @@ graph LR
 
 | 色 / 線種 | 意味 |
 |----|------|
-| 赤 | バイナリ埋め込み |
+| 赤 | バイナリ埋め込み定数 |
 | 青 | サーバーレスポンス由来 |
-| 黄 | 計算可能 (入力があれば) |
-| 緑 | 解明済み (全入力が既知で計算可能) |
-| オレンジ | 由来不明 |
+| 緑 | 解明済み (Python + Unicorn で計算可能) |
 | 点線 (-.->)  | 関与が推定されるが未実証 |
 
 ---
@@ -224,14 +226,14 @@ graph LR
     style PSK2 fill:#e74c3c,stroke:#c0392b,color:#fff
     style NONCE2 fill:#e74c3c,stroke:#c0392b,color:#fff
 
-    %% 青: サーバーレスポンス由来
-    style ENC_OLD fill:#3498db,stroke:#2980b9,color:#fff
-    style SIGN_OLD fill:#3498db,stroke:#2980b9,color:#fff
+    %% 緑: Phase 0 出力 (計算可能)
+    style ENC_OLD fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SIGN_OLD fill:#2ecc71,stroke:#27ae60,color:#fff
 
-    %% 黄: 計算可能
-    style NEW_ENC fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style NEW_SIGN fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style SB fill:#f1c40f,stroke:#d4ac0f,color:#000
+    %% 緑: 計算可能
+    style NEW_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
+    style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SB fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 **注意**: KDF は常に enc_key_0 / sign_key_0 を入力とする。enc_key_1 からのチェーン更新は行われない。
@@ -259,10 +261,10 @@ graph LR
     CT2 --> DEC2
     DEC2 --> SIGN2["sign_key_2 256-bit"]
 
-    %% 黄: 計算可能
-    style ENC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style DEC1 fill:#f1c40f,stroke:#d4ac0f,color:#000
-    style DEC2 fill:#f1c40f,stroke:#d4ac0f,color:#000
+    %% 緑: 計算可能
+    style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DEC1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style DEC2 fill:#2ecc71,stroke:#27ae60,color:#fff
 
     %% 青: サーバーレスポンス由来
     style IV1 fill:#3498db,stroke:#2980b9,color:#fff
@@ -309,8 +311,8 @@ sign_key_2 の復号:
 | bootstrap_key | 256-bit | Phase 2 KDF 出力 [16:48] | ペイロード全体署名 | **= Phase 2 sign_key** |
 | DH p | 1024-bit | バイナリ | DH 鍵交換 | 確定 |
 | DH g | - | バイナリ | DH 鍵交換 | 確定 |
-| kAppBootKey | 4096-bit | バイナリ | DH パラメータ暗号化 | 既知 |
-| kAppBootEccKey | 256-bit | バイナリ | レスポンス署名検証 | 既知 |
+| kAppBootKey | 4096-bit | バイナリ | 用途未確認 (RSA 暗号化は未使用) | 既知 |
+| kAppBootEccKey | 256-bit | バイナリ | 用途未確認 (署名検証?) | 既知 |
 
 ---
 
@@ -335,24 +337,48 @@ MSL メッセージには2種類の HMAC 署名が付与される:
 - ~~key 33.6 の構成方法~~ → CBOR ヘッダ (128B) + TFIT(DH_pub, 8ブロック) (128B) + MGK ペア (32B) + リクエスト固有 (64B)、全体を XOR(nonce) でエンコード
 - ~~key 33.6 の復号鍵は何か~~ → ログイン時は enc_key_1 で復号 (Phase 4 で確認)
 
-## 8. 残りの未解明ポイント
+## 8. key 33.6 リクエストの構造 (352B 版)
+
+```
+key_33_6[i:i+16] = plaintext[i:i+16] XOR nonce(key_33_9)   # 全ブロック同一 nonce で XOR
+
+plaintext (352B):
+┌─────────────────────────────────────────────────┐
+│ [0:128]   CBOR ヘッダ (128B)                    │ ← 固定 (Argo バイナリ構築)
+│           d9d9f7a7 + CBOR スキャフォールド       │
+├─────────────────────────────────────────────────┤
+│ [128:256] TFIT 暗号化 DH 公開鍵 (128B)          │ ← TFIT-WB-AES-128-ECB × 8 ブロック
+│           同じ iPhone 鍵スケジュールで暗号化      │
+├─────────────────────────────────────────────────┤
+│ [256:288] MGK ペア (32B)                         │ ← enc_key_0 (16B) + sign_key_0[:16] (16B)
+│           サーバー側デバイス検証用                │
+├─────────────────────────────────────────────────┤
+│ [288:352] リクエスト固有データ (64B)              │ ← メッセージ ID / タイムスタンプ
+└─────────────────────────────────────────────────┘
+```
+
+## 9. 残りの未解明ポイント
 
 | 項目 | 詳細 |
 |------|------|
-| key 33.6 CBOR ヘッダ (128B) | Argo バイナリ内で構築。固定値だが構成ロジックは NFWebCrypto の外 |
-| key 33.6 リクエスト固有領域 (64B) | メッセージ ID / タイムスタンプ。構築ロジックは Argo バイナリ内 |
-| 144B バリアントの構造 | 352B と異なる短縮形式。map(6) vs map(7)。詳細未調査 |
+| CBOR ヘッダの構成ロジック | Argo バイナリ内。固定値なのでキャプチャからコピー可能 |
+| リクエスト固有領域 | メッセージ ID / タイムスタンプの生成ロジック。Argo バイナリ内 |
+| 144B バリアントの構造 | map(6) vs map(7)。セッション領域が短縮される条件は未特定 |
+| kAppBootKey / kAppBootEccKey | バイナリに存在するが appboot 中に使われていない。別用途? |
 
 ### Tweak フックの制約
 
 | フック対象 | MSHookFunction | 理由 |
 |-----------|:-:|------|
-| DH_generate_key | OK | |
-| DH_compute_key | OK | |
-| AES_set_encrypt_key | OK | |
-| AES_set_decrypt_key | OK | |
-| HMAC | OK | |
-| HMAC_Init_ex / Update / Final | OK | |
+| DH_generate_key | OK | クライアント DH 公開鍵/秘密鍵キャプチャ |
+| DH_compute_key | OK | DH 共有秘密キャプチャ |
+| AES_set_encrypt_key / decrypt_key | OK | TFIT チェーン追跡、セッション鍵検出 |
+| AES_encrypt | OK | TFIT 単一ブロック ECB 入出力キャプチャ |
+| HMAC | OK | one-shot HMAC キャプチャ |
+| HMAC_Init_ex / Final | OK | streaming HMAC + 48B 鍵の caller 取得 |
+| SHA384 | OK | 48B 鍵生成の入出力キャプチャ |
+| RSA_public_encrypt | OK | 未呼び出しを確認 |
+| EVP_PKEY_encrypt | OK | 未呼び出しを確認 |
 | AES_cbc_encrypt | NG | トランポリンが関数を破壊 |
 | EVP_CipherInit_ex / Update | NG | RSA 鍵処理に干渉 |
-| EVP_DecryptInit_ex / Update | NG | 同上 |
+| _TFIT_wbaes_ecb_encrypt_iAES11 | NG | シンボル未エクスポート (オフセットフック要) |
