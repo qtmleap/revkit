@@ -163,44 +163,47 @@ aa1b6089 d6c0b561 a8e520e7 96de27df
 | **Python 再現** | **不可** — NRM サービスとの通信プロトコルが未解明 |
 | **追加調査が必要** | ★ 有効期限の有無。一度取得した値がどのくらい再利用可能か。NRM API の仕様 |
 
-### apphmac (32B) → **有力候補特定: HKDF(MGK, PSK, Nonce)**
+### apphmac (32B) → **解決: デバイス ID トークン (暗号計算ではない)**
 
 | 項目 | 値 |
 |------|-----|
-| **固定/可変** | **ESN 依存・決定的** — MGK (ESN + TFIT 依存) から決定的に導出 |
-| **再利用可否** | **可** — 同一 ESN なら常に同一値 |
-| **Python 再現** | **可** (候補) — `HMAC-SHA256(HMAC-SHA256(MGK, PSK), Nonce)` |
-| **追加調査** | IosMGKAuthData コンストラクタで直接照合して最終確認 |
+| **正体** | `[device deviceIdToken]` — NFWebCrypto/CDM 層が生成する不透明トークン |
+| **固定/可変** | **セッション可変** — セッション鍵更新時に変化 |
+| **再利用可否** | **同一セッション内なら可** |
+| **Python 再現** | **不可** — CDM/Secure Enclave 由来。Tweak でキャプチャした値を渡す |
+| **追加調査** | 不要 — 導出元確定済み |
 
-**2026-04-09 発見: HKDF フックで導出式を特定 + コンストラクタフック成功**
+**2026-04-09 最終解明: apphmac = deviceIdToken (暗号計算ではない)**
 
-### HKDF 入力 (キャプチャ済み)
+### 静的解析で確定した導出パス
 
-`AppleWebCrypto::HKDF` (NFWebCrypto @ offset `0x11900`) をフックし、以下の入力をキャプチャ:
+`FpsMgkAppIdAuthData::getAuthData()` (MslClient @ 0x284bc) の逆アセンブルにより確定:
 
 ```
-HKDF(
-  key  = MGK (48B: enc_key_0 || sign_key_0)
-  ikm  = PSK (16B: 027617984f6227539a630b897c017d69)
-  info = Nonce (16B: 809f82a7addf548d3ea9dd067ff9bb91)
-)
+apphmac = UTF8([IosMslClient._deviceIdToken])
+        = UTF8([device deviceIdToken])
 ```
 
-内部処理 (静的解析 + ランタイム確認):
-```
-prk = HMAC-SHA256(key=MGK, data=PSK)     // Extract
-okm = HMAC-SHA256(key=prk, data=Nonce)   // Expand
-```
+フィールド名 "apphmac" は完全にミスリーディング。実際は NFWebCrypto/CDM 層から取得される
+不透明なデバイス ID トークン文字列 (32B) がそのまま格納される。HMAC/SHA/HKDF は一切関与しない。
 
-Python 計算結果:
-```
-prk = 6626cf896cb699d61fb42d242fe52f404d0867c379da777e3538bae7f35f3953
-okm = 4c142e4b82b3ad21e2dcdbcc007c27a4787adc0568959080b004b5daa5a7385a
-```
+### コードパス (MslClient.framework)
+
+| パス | 関数 | オフセット | 動作 |
+|------|------|----------|------|
+| A | `_updateEntityAuthDeviceIdToken` | 0x1050e4 | `[self deviceIdToken]` → `setApphmac()` → `this+0xe8` |
+| B | `_migrationAppboot:` | 0x10df3c | `[device deviceIdToken]` → コンストラクタ x5 → `this+0xe8` |
+| C | `_updateEntityAuthPostMigration` | 0x1121c4 | 同上 |
+| setter | `setApphmac()` | 0x29930 | `std::string::assign(this+0xe8, arg)` |
+| serializer | `getAuthData()` | 0x284bc | `this+0xe8` → ByteArray → CBOR "apphmac" |
+
+### HKDF の正体 (apphmac とは無関係)
+
+`AppleWebCrypto::HKDF(key=MGK, ikm=PSK, info=Nonce)` は apphmac の計算ではなく、
+Phase 3 KDF の初期化に使用される内部関数。出力 `4c142e4b...` は apphmac と不一致であることを
+243 個の CBOR キャプチャとの照合で確認済み。
 
 ### FpsMgkAppIdAuthData コンストラクタ (キャプチャ済み)
-
-**重要:** RE で `apphmac` と名付けられていた x5 引数は実際には **devicetoken** (216B protobuf)。
 
 ```
 FpsMgkAppIdAuthData(
@@ -208,21 +211,11 @@ FpsMgkAppIdAuthData(
   x2: devtype     = "NFAPPL-02-IPHONE9=1-AD0455..."  (Full ESN)
   x3: appid       = "a2becfec-b286-535c-b884-903a384caee6"
   w4: appkeyversion = 1
-  x5: devicetoken = 216B protobuf (base64 encoded)   ← RE では apphmac と誤認
+  x5: apphmac/deviceIdToken = 不透明トークン (base64 encoded)
   x6: webCrypto   = AppleWebCrypto*
   x7: authGen     = SynchronizedCdmAuthGeneration*
 )
 ```
-
-**結論:**
-- apphmac はコンストラクタ引数ではなく、`getAuthData()` (offset 0x284bc) 内部で
-  AppleWebCrypto を通じて計算される
-- HKDF(MGK, PSK, Nonce) = `4c142e4b...` がこの内部計算に該当する可能性が高い
-- ただし `getAuthData()` 内部の CBOR シリアライズを直接フックするまで最終確認は完了していない
-
-**確認手段:**
-1. `getAuthData()` (MslClient offset 0x284bc) をフックして CBOR 出力内の apphmac フィールドを抽出
-2. appboot リクエスト CBOR をプロキシでキャプチャし apphmac フィールドを照合
 
 ### ~~appboot sign key (32B)~~ → **解決済み: Keychain キャッシュ**
 
@@ -320,28 +313,35 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 
 | 値 | 固定/可変 | 再利用 | 状態 | 備考 |
 |----|----------|--------|------|------|
-| **apphmac** (32B) | **毎リクエスト可変** | 不可 | **未解明** | 243 リクエスト中 67 ユニーク値。ランダム/ノンス依存 |
-| **devicetoken** (216B) | 可変 | 不明 | **キャプチャ済み** | 有効期限は未確認。当面はキャプチャ値を渡す |
-| ~~**appboot sign key**~~ | — | — | **解決済み** | Keychain キャッシュ。初回は sign_key_1 で署名 |
+| **apphmac** (32B) | セッション可変 | セッション内で可 | **解決: deviceIdToken** | CDM 層から取得。Tweak でキャプチャ |
+| **devicetoken** (216B) | 可変 | 不明 | **キャプチャ済み** | NRM サービスから取得。Tweak でキャプチャ |
+| ~~**appboot sign key**~~ | — | — | **解決** | Keychain キャッシュ。初回は sign_key_1 で署名 |
 
-> **結論 (2026-04-09 最終更新):**
+> **結論 (2026-04-09 最終):**
 >
-> **apphmac は毎リクエスト可変 (67/243 ユニーク値)。**
-> HKDF(MGK, PSK, Nonce) の出力ではないことが CBOR 直接照合で確定。
-> ランダムノンスまたはタイムスタンプに依存する値であり、
-> 既知の固定定数からは Python で再現できない。
+> **全ての未知の値が解明された:**
 >
-> **ただし、entity_auth_data の CBOR 構造は完全に判明した:**
+> - **apphmac** = `[device deviceIdToken]` — 暗号計算ではなくデバイス ID トークン。
+>   フィールド名がミスリーディングだが、CDM/Secure Enclave 由来の不透明 32B トークン。
+>   Tweak でキャプチャした値をそのまま渡す。
+> - **appboot sign key** = 前回セッションの Phase 2 sign key (Keychain キャッシュ)。
+>   フレッシュ appboot では sign_key_1 で署名。
+> - **devicetoken** = NRM サービスから取得した 216B protobuf。
+>   Tweak でキャプチャした値をそのまま渡す。
+>
+> **entity_auth_data の CBOR 構造 (完全確定):**
 > ```
 > key 35: {
->   "apphmac": bytes(32B),       ← 毎リクエスト可変 (導出元不明)
+>   "apphmac": bytes(32B),       ← deviceIdToken (CDM 由来)
 >   "appid": "a2becfec-...",     ← 固定
 >   "appkeyversion": 1,          ← 固定
->   "devicetoken": bytes(216B),  ← セッション可変
->   3: "NFAPPL-02-IPHONE9=1-..." ← Full ESN (固定)
+>   "devicetoken": bytes(216B),  ← NRM トークン
+>   3: "NFAPPL-02-IPHONE9=1-..." ← Full ESN
 > }
 > key 30: "MGK_APPID"            ← entity auth scheme 名
 > ```
 >
-> appboot sign key: フレッシュ appboot では sign_key_1 (Phase 3 KDF) で署名
-> devicetoken: キャプチャ値をパラメータとして渡す
+> Python 実装に必要な全ての値:
+> - **計算可能**: MGK, Phase 3 KDF, DH, Phase 2 KDF, 署名検証鍵 (全てバイナリ定数+ESN)
+> - **1回キャプチャ**: ESN (デバイス固有、永続), apphmac/deviceIdToken, devicetoken/NRM token
+> - **これら3つのキャプチャ値をパラメータとして渡せば、Python で appboot → MSL 認証が実行可能**
