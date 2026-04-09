@@ -22,12 +22,16 @@ graph LR
     OP_SHA0 --> OP_TFIT0
     OP_TFIT0 --> MGK_ENC["enc_key_0 128-bit"]
     OP_TFIT0 --> MGK_SIGN["sign_key_0 256-bit"]
+    MGK_ENC --> TO_P1a[/"to Phase 1, 3"/]
+    MGK_SIGN --> TO_P1b[/"to Phase 1, 3"/]
 
     style TFIT_TBL fill:#e74c3c,stroke:#c0392b,color:#fff
     style MGK_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
     style MGK_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_SHA0 fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_TFIT0 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style TO_P1a fill:#555,stroke:#333,color:#fff
+    style TO_P1b fill:#555,stroke:#333,color:#fff
 ```
 
 ### Phase 1: appboot Key Exchange
@@ -38,15 +42,16 @@ graph LR
     DH_G["DH g = 5"] --> OP_DHGEN
     OP_DHGEN --> DH_PUB["Client DH PubKey 128B"]
     OP_DHGEN --> DH_PRIV["Client DH PrivKey 128B"]
-    DH_PRIV -->|to Phase 2| TO_P2a[/"to Phase 2"/]
+    DH_PRIV --> TO_P2a[/"to Phase 2"/]
     DH_PUB --> OP_TFIT1(["TFIT-WB-AES-128-ECB x8"])
     OP_TFIT1 --> KEY336_PT["key 33.6 plaintext 352B"]
     FROM_P0[/"from Phase 0: MGK Pair 32B"/] --> KEY336_PT
-    NONCE_SRV["key 33.9 nonce 16B"] -->|XOR each block| OP_XOR(["XOR Encode"])
+    NONCE_SRV["key 33.9 nonce 16B"] --> OP_XOR(["XOR Encode"])
     KEY336_PT --> OP_XOR
     OP_XOR --> KEY336_ENC["key 33.6 ciphertext"]
     KEY336_ENC -->|POST /appboot| SERVER["Netflix Server"]
     SERVER --> DH_RESP["appboot Response key 33"]
+    DH_RESP --> TO_P2b[/"to Phase 2"/]
     ECC_BOOT["kAppBootEccKey P-256"] -.->|verify?| DH_RESP
 
     style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
@@ -55,8 +60,10 @@ graph LR
     style NONCE_SRV fill:#2ecc71,stroke:#27ae60,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
+    style DH_PUB fill:#2ecc71,stroke:#27ae60,color:#fff
     style DH_PRIV fill:#2ecc71,stroke:#27ae60,color:#fff
     style TO_P2a fill:#555,stroke:#333,color:#fff
+    style TO_P2b fill:#555,stroke:#333,color:#fff
     style OP_DHGEN fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_TFIT1 fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_XOR fill:#2ecc71,stroke:#27ae60,color:#fff
@@ -79,11 +86,13 @@ graph LR
     KEY48 -->|HMAC key| OP_HMAC(["HMAC-SHA384"])
     DH_SHARED -->|0x00 + shared secret| OP_HMAC
     OP_HMAC --> NEW_ENC["new enc_key 128-bit"]
-    OP_HMAC --> NEW_SIGN["new sign_key = bootstrap_key 256-bit"]
+    OP_HMAC --> NEW_SIGN["bootstrap_key 256-bit"]
+    NEW_SIGN --> TO_P5[/"to Phase 5"/]
 
     style FROM_P1a fill:#555,stroke:#333,color:#fff
     style FROM_P1b fill:#555,stroke:#333,color:#fff
     style FROM_P3 fill:#555,stroke:#333,color:#fff
+    style TO_P5 fill:#555,stroke:#333,color:#fff
     style OP_DH fill:#2ecc71,stroke:#27ae60,color:#fff
     style DH_SHARED fill:#2ecc71,stroke:#27ae60,color:#fff
     style OP_SHA2 fill:#2ecc71,stroke:#27ae60,color:#fff
@@ -103,16 +112,20 @@ graph LR
     NONCE["nonce 128-bit"] -->|input| OP_KDF
     OP_KDF --> ENC1["enc_key_1 128-bit"]
     OP_KDF --> SIGN1["sign_key_1 256-bit"]
-    OP_KDF -->|session_bind upper 16B| TO_P2[/"to Phase 2"/]
+    OP_KDF --> SB["session_bind upper 16B"]
+    ENC1 --> TO_P4[/"to Phase 4"/]
+    SB --> TO_P2[/"to Phase 2"/]
 
     style PSK fill:#e74c3c,stroke:#c0392b,color:#fff
     style NONCE fill:#e74c3c,stroke:#c0392b,color:#fff
     style FROM_P0b fill:#555,stroke:#333,color:#fff
     style FROM_P0c fill:#555,stroke:#333,color:#fff
     style TO_P2 fill:#555,stroke:#333,color:#fff
+    style TO_P4 fill:#555,stroke:#333,color:#fff
     style OP_KDF fill:#2ecc71,stroke:#27ae60,color:#fff
     style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
     style SIGN1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style SB fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### Phase 4: Login Key Distribution (Resolved)
@@ -124,10 +137,14 @@ graph LR
     KRD --> OP_DEC
     OP_DEC --> ENC2["enc_key_2 128-bit"]
     OP_DEC --> SIGN2["sign_key_2 256-bit"]
+    ENC2 --> TO_P5a[/"to Phase 5"/]
+    SIGN2 --> TO_P5b[/"to Phase 5"/]
 
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style KRD fill:#3498db,stroke:#2980b9,color:#fff
     style FROM_P3b fill:#555,stroke:#333,color:#fff
+    style TO_P5a fill:#555,stroke:#333,color:#fff
+    style TO_P5b fill:#555,stroke:#333,color:#fff
     style OP_DEC fill:#2ecc71,stroke:#27ae60,color:#fff
     style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
     style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
@@ -137,12 +154,12 @@ graph LR
 
 ```mermaid
 graph LR
-    FROM_P4a[/"from Phase 4: enc_key_2"/] -->|encrypt / decrypt| OP_AES(["AES-128-CBC"])
-    FROM_P4b[/"from Phase 4: sign_key_2"/] -->|sign / verify| OP_HMAC5(["HMAC-SHA256"])
-    FROM_P2[/"from Phase 2: bootstrap_key"/] -->|payload-wide sign| OP_HMAC5b(["HMAC-SHA256"])
-    OP_AES --> PAYLOAD["manifest / license / logblob"]
-    OP_HMAC5 --> PAYLOAD
-    OP_HMAC5b --> PAYLOAD
+    FROM_P4a[/"from Phase 4: enc_key_2"/] --> OP_AES(["AES-128-CBC"])
+    FROM_P4b[/"from Phase 4: sign_key_2"/] --> OP_HMAC5(["HMAC-SHA256"])
+    FROM_P2[/"from Phase 2: bootstrap_key"/] --> OP_HMAC5b(["HMAC-SHA256"])
+    OP_AES -->|encrypt / decrypt| PAYLOAD["manifest / license / logblob"]
+    OP_HMAC5 -->|sign / verify| PAYLOAD
+    OP_HMAC5b -->|payload-wide sign| PAYLOAD
 
     style FROM_P4a fill:#555,stroke:#333,color:#fff
     style FROM_P4b fill:#555,stroke:#333,color:#fff
