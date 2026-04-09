@@ -45,7 +45,8 @@ graph LR
     DH_PRIV --> TO_P2a[/"to Phase 2"/]
     DH_PUB --> OP_TFIT1(["TFIT-WB-AES-128-ECB x8"])
     OP_TFIT1 --> KEY336_PT["key 33.6 plaintext 352B"]
-    FROM_P0[/"from Phase 0: MGK Pair 32B"/] --> KEY336_PT
+    FROM_P0a[/"from Phase 0: enc_key_0"/] --> KEY336_PT
+    FROM_P0b[/"from Phase 0: sign_key_0 upper 16B"/] --> KEY336_PT
     NONCE_SRV["key 33.9 nonce 16B"] --> OP_XOR(["XOR Encode"])
     KEY336_PT --> OP_XOR
     OP_XOR --> KEY336_ENC["key 33.6 ciphertext"]
@@ -69,7 +70,8 @@ graph LR
     style OP_XOR fill:#2ecc71,stroke:#27ae60,color:#fff
     style KEY336_PT fill:#2ecc71,stroke:#27ae60,color:#fff
     style KEY336_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
-    style FROM_P0 fill:#555,stroke:#333,color:#fff
+    style FROM_P0a fill:#555,stroke:#333,color:#fff
+    style FROM_P0b fill:#555,stroke:#333,color:#fff
 ```
 
 > **Note**: key 33.9 nonce is a 16B random value generated per-session by the client. Distinct from the hardcoded nonce at 0x1AC905.
