@@ -1,0 +1,9 @@
+Package: work.tkgstrator.netflixentityauth
+Name: NetflixEntityAuth
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Netflix iOS entity_auth_data capture (devicetoken, apphmac, ESN, appid, appkeyversion)
+Maintainer: NEVER KNOWS BEST
+Author: tkgstrator
+Section: Tweaks
+Depends: mobilesubstrate, dev.theos.orion14 (>= 1.0.1)
