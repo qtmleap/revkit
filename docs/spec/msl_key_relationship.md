@@ -1,7 +1,7 @@
 # Netflix iOS MSL 鍵の関係図
 
 作成日: 2026-04-08
-更新日: 2026-04-09 (全鍵導出チェーン解明: ESN → MGK → Phase 2/3/4/5)
+更新日: 2026-04-09 (全鍵導出チェーン解明 + entity_auth_data 構造確定)
 
 ---
 
@@ -470,3 +470,71 @@ plaintext (352B):
 | AES_cbc_encrypt | NG | トランポリンが関数を破壊 |
 | EVP_CipherInit_ex / Update | NG | RSA 鍵処理に干渉 |
 | _TFIT_wbaes_ecb_encrypt_iAES11 | NG | シンボル未エクスポート (オフセットフック要) |
+
+---
+
+## 9. Entity Auth Data (デバイス認証)
+
+appboot リクエストの CBOR key 34 に格納されるデバイス認証情報。
+スキーム名: `MGK_APPID` (FpsMgkAppIdAuthData クラス)。
+
+### 構造 (CBOR)
+
+```
+key 34 (entity_auth_data): {
+  key 30: "MGK_APPID",           // 認証スキーム名
+  key 35: {                      // 認証データ本体
+    3:              ESN (string), // Full ESN (デバイス固有ID)
+    "appid":        UUID (string),// アプリケーション ID (固定)
+    "appkeyversion": 1 (int),    // アプリ鍵バージョン (固定)
+    "apphmac":      bytes(32B),  // ★ deviceIdToken (下記参照)
+    "devicetoken":  bytes(216B), // ★ NRM devicetoken (下記参照)
+  }
+}
+```
+
+### deviceIdToken (CBOR フィールド名: "apphmac")
+
+| 項目 | 値 |
+|------|-----|
+| サイズ | 32B |
+| 生成元 | NFWebCrypto/CDM 層 (`[device deviceIdToken]`) |
+| 設定パス | `_updateEntityAuthDeviceIdToken` → `setApphmac()` → `this+0xe8` |
+| 可変性 | セッション可変 — セッション鍵更新時に変化 |
+| Python 再現 | **不可** — CDM/Secure Enclave 由来の不透明トークン |
+| 取得方法 | Tweak でキャプチャ (`FpsMgkAppIdAuthData` コンストラクタ x5) |
+
+> **注意**: フィールド名 "apphmac" は誤解を招くが、HMAC 計算値ではない。
+> CDM 層が生成するデバイス識別トークンがそのまま格納される。
+
+### devicetoken (CBOR フィールド名: "devicetoken")
+
+| 項目 | 値 |
+|------|-----|
+| サイズ | 216B (protobuf) |
+| 生成元 | Nbp.framework 内部 SDK コール (`getNRMCookieWithESN:`) |
+| 取得方式 | **HTTP ではない** — Netflix SDK (NRDP/CDM 層) 内部 API |
+| protobuf 構造 | field 1: varint (ID), field 2: 188B opaque payload |
+| 可変性 | セッション可変 |
+| Python 再現 | **不可** — SDK 内部 API で発行。HTTP エンドポイントなし |
+| 取得方法 | Tweak でキャプチャ (`FpsMgkAppIdAuthData` コンストラクタ x5、または appboot blob 末尾) |
+
+> プロキシ (mitmproxy) のキャプチャログに NRM 専用 HTTP エンドポイントは存在しなかった。
+> `getNRMCookieWithESN:` は HTTP 経由ではなく、Nbp.framework 内部で
+> NRDP/CDM ネイティブ API を呼び出してトークンを取得している。
+
+### 用途
+
+両トークンは **「このデバイスは正規の Netflix 対応デバイスである」ことをサーバーに証明する認証情報**。
+`entity_auth_data` (MGK_APPID スキーム) として ESN + appid と共にセットで appboot リクエストに含まれる。
+
+### Python 実装での扱い
+
+```python
+# ios_client.py コンストラクタ
+client = iOSMslClient(
+    esn="NFAPPL-02-IPHONE9=1-...",        # Tweak でキャプチャ
+    device_id_token=b"...(32B)...",         # Tweak でキャプチャ (CBOR では "apphmac")
+    device_token=b"...(216B protobuf)...",  # Tweak でキャプチャ (CBOR では "devicetoken")
+)
+```
