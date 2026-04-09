@@ -801,83 +801,99 @@ static NSData *hook_dataWithContentsOfFile(id cls, SEL sel, NSString *path) {
 // ---------------------------------------------------------------------------
 // MslClient.framework hook setup
 //
-// IosMGKAuthenticationData constructor (offset 0x0000d45c):
-//   x0: self
-//   x1: identity (NSString* — ESN)
-//   x2: appid (NSString*)
-//   x3: appkeyversion (int64)
-//   x4: apphmac (NSString* — base64)
-//   x5: shared_ptr<AppleWebCrypto>  (ignored)
+// FpsMgkAppIdAuthData constructor (offset 0x00028038):
+//   x0: self (this pointer)
+//   x1: &mgkid (std::string const&)
+//   x2: &devtype (std::string const&)
+//   x3: &appid (std::string const&)
+//   w4: appkeyversion (int)
+//   x5: &apphmac (std::string const&)
+//   x6: AppleWebCrypto*
+//   x7: SynchronizedCdmAuthGeneration*
 //
-// We hook via MSHookFunction using the resolved symbol address.
+// Note: IosMGKAuthenticationData at 0xd45c is LEGACY and never fires.
+// The active scheme is FpsMgkAppIdAuthData.
 // ---------------------------------------------------------------------------
 
-// ARM64 calling convention: ObjC id args are in x0..x7 registers.
-// The constructor is a plain C++ function (not ObjC method), so we model
-// it as a plain C function pointer with the matching argument layout.
+// Helper: read libc++ std::string (SSO layout)
+// If byte at [str+0x17] (sign bit) is non-negative => short string, data inline at str
+// Otherwise => long string, pointer at [str], length at [str+8]
+static NSString *readStdString(const void *strPtr) {
+    if (!strPtr) return @"(nil)";
+    const uint8_t *raw = (const uint8_t *)strPtr;
+    int8_t signByte = (int8_t)raw[0x17];
+    if (signByte >= 0) {
+        // Short (SSO) string: length = signByte, data at raw[0]
+        size_t len = (size_t)(uint8_t)signByte;
+        return [[NSString alloc] initWithBytes:raw length:len encoding:NSUTF8StringEncoding] ?: @"(unreadable)";
+    } else {
+        // Long string: pointer at offset 0, length at offset 8
+        const char *data = *(const char **)raw;
+        size_t len = *(const size_t *)(raw + 8);
+        if (!data || len == 0 || len > 65536) return @"(long/invalid)";
+        return [[NSString alloc] initWithBytes:data length:len encoding:NSUTF8StringEncoding] ?: @"(unreadable)";
+    }
+}
 
-typedef void (*IosMGKAuthData_ctor_t)(id self,
-                                      NSString *identity,
-                                      NSString *appid,
-                                      int64_t appkeyversion,
-                                      NSString *apphmac,
-                                      void *webcrypto_ptr);
+typedef void (*FpsMgkAppIdAuthData_ctor_t)(void *self,
+                                            const void *mgkid,
+                                            const void *devtype,
+                                            const void *appid,
+                                            int appkeyversion,
+                                            const void *apphmac,
+                                            void *webCrypto,
+                                            void *authGen);
 
-static IosMGKAuthData_ctor_t orig_IosMGKAuthData_ctor = NULL;
+static FpsMgkAppIdAuthData_ctor_t orig_FpsMgkAppIdAuthData_ctor = NULL;
 
-static void hook_IosMGKAuthData_ctor(id self,
-                                      NSString *identity,
-                                      NSString *appid,
-                                      int64_t appkeyversion,
-                                      NSString *apphmac,
-                                      void *webcrypto_ptr) {
+static void hook_FpsMgkAppIdAuthData_ctor(void *self,
+                                           const void *mgkid,
+                                           const void *devtype,
+                                           const void *appid,
+                                           int appkeyversion,
+                                           const void *apphmac,
+                                           void *webCrypto,
+                                           void *authGen) {
     // Call original first
-    if (orig_IosMGKAuthData_ctor) {
-        orig_IosMGKAuthData_ctor(self, identity, appid, appkeyversion, apphmac, webcrypto_ptr);
+    if (orig_FpsMgkAppIdAuthData_ctor) {
+        orig_FpsMgkAppIdAuthData_ctor(self, mgkid, devtype, appid, appkeyversion, apphmac, webCrypto, authGen);
     }
 
     if (!g_inHook) {
         g_inHook = 1;
 
+        NSString *mgkidStr   = readStdString(mgkid);
+        NSString *devtypeStr = readStdString(devtype);
+        NSString *appidStr   = readStdString(appid);
+        NSString *apphmacStr = readStdString(apphmac);
+
         file_log(g_log_entity,
                  [NSString stringWithFormat:
-                  @"[NFXEntityAuth][IosMGKAuthData] identity=%@ appid=%@ appkeyversion=%lld apphmac=%@",
-                  identity ?: @"(nil)", appid ?: @"(nil)", appkeyversion, apphmac ?: @"(nil)"]);
+                  @"[NFXEntityAuth][FpsMgkAppIdAuthData] mgkid=%@ devtype=%@ appid=%@ appkeyversion=%d apphmac=%@",
+                  mgkidStr, devtypeStr, appidStr, appkeyversion, apphmacStr]);
 
         NSString *tmpDir = NSTemporaryDirectory();
-        // Write identity (ESN) to file
-        if (identity) {
-            [identity writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_identity.txt"]
-                       atomically:YES
-                         encoding:NSUTF8StringEncoding
-                            error:nil];
-        }
-        // Write appid to file
-        if (appid) {
-            [appid writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_appid.txt"]
-                    atomically:YES
-                      encoding:NSUTF8StringEncoding
-                         error:nil];
-        }
-        // Write appkeyversion
-        NSString *akvStr = [NSString stringWithFormat:@"%lld", appkeyversion];
-        [akvStr writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_appkeyversion.txt"]
-                 atomically:YES
-                   encoding:NSUTF8StringEncoding
-                      error:nil];
-        // Write apphmac base64
-        if (apphmac) {
-            [apphmac writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_apphmac_b64.txt"]
-                      atomically:YES
-                        encoding:NSUTF8StringEncoding
-                           error:nil];
+        // Save all fields
+        [mgkidStr writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_mgkid.txt"]
+                   atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [devtypeStr writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_devtype.txt"]
+                     atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [appidStr writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_appid.txt"]
+                   atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [[NSString stringWithFormat:@"%d", appkeyversion]
+            writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_appkeyversion.txt"]
+            atomically:YES encoding:NSUTF8StringEncoding error:nil];
+
+        if (apphmacStr && ![apphmacStr isEqualToString:@"(nil)"]) {
+            [apphmacStr writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_apphmac_b64.txt"]
+                         atomically:YES encoding:NSUTF8StringEncoding error:nil];
             // Decode base64 and save raw bytes
-            NSData *hmacData = [[NSData alloc] initWithBase64EncodedString:apphmac options:0];
+            NSData *hmacData = [[NSData alloc] initWithBase64EncodedString:apphmacStr options:0];
             if (hmacData) {
                 [hmacData writeToFile:[tmpDir stringByAppendingPathComponent:@"entityauth_apphmac_raw.bin"]
                            atomically:YES];
                 file_log(g_log_entity,
-                         [NSString stringWithFormat:@"[NFXEntityAuth][IosMGKAuthData] apphmac_raw(%luB)=%@",
+                         [NSString stringWithFormat:@"[NFXEntityAuth][FpsMgkAppIdAuthData] apphmac_raw(%luB)=%@",
                           (unsigned long)[hmacData length],
                           hexEncode((const uint8_t *)[hmacData bytes], [hmacData length])]);
             }
@@ -1012,21 +1028,18 @@ static void installMslClientHooks(void) {
         return;
     }
 
-    // IosMGKAuthenticationData constructor offset 0x0000d45c
-    // Note: on arm64 with ASLR the actual address = base + slide + text_offset
-    // _dyld_get_image_header returns the load address (includes ASLR slide).
-    // For a __TEXT segment starting at offset 0, the load address IS the base.
-    // The offset 0xd45c is from the start of the binary (Mach-O header), which
-    // equals the load address for arm64 dylibs.
-    uintptr_t ctorAddr = mslBase + 0xd45c;
+    // FpsMgkAppIdAuthData constructor offset 0x00028038
+    // This is the ACTIVE entity_auth_data class for appboot.
+    // (IosMGKAuthenticationData at 0xd45c is LEGACY and never fires.)
+    uintptr_t ctorAddr = mslBase + 0x28038;
     file_log(g_log_general,
-             [NSString stringWithFormat:@"[NFXEntityAuth] IosMGKAuthData ctor addr=0x%lx",
+             [NSString stringWithFormat:@"[NFXEntityAuth] FpsMgkAppIdAuthData ctor addr=0x%lx",
               (unsigned long)ctorAddr]);
 
     MSHookFunction((void *)ctorAddr,
-                   (void *)hook_IosMGKAuthData_ctor,
-                   (void **)&orig_IosMGKAuthData_ctor);
-    file_log(g_log_general, @"[NFXEntityAuth] IosMGKAuthData ctor hooked");
+                   (void *)hook_FpsMgkAppIdAuthData_ctor,
+                   (void **)&orig_FpsMgkAppIdAuthData_ctor);
+    file_log(g_log_general, @"[NFXEntityAuth] FpsMgkAppIdAuthData ctor hooked");
 
     g_mslHooked = YES;
 }
