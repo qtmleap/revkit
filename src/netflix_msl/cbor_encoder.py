@@ -110,19 +110,29 @@ def _nf_encode_text(text: str) -> bytes:
         return b"\x7a" + _struct.pack(">I", length) + data
 
 
-def nf_cbor_encode(obj: object) -> bytes:
+def nf_cbor_encode(obj: object, *, _top: bool = True) -> bytes:
     """Netflix 互換の CBOR エンコードを行う.
 
-    - dict → tag(55799) + map, 整数キーは 8 バイト形式
+    - dict → map (トップレベルのみ tag(55799) 付与), 整数キーは 8 バイト形式
     - bytes → bstr
     - str → tstr
     - int → 8 バイト uint
     - bool → CBOR true/false
     - list → array
+
+    Args:
+        obj:  エンコード対象
+        _top: True ならトップレベル dict に tag(55799) を付与 (内部再帰用)
     """
     if isinstance(obj, dict):
-        items = sorted(obj.items(), key=lambda kv: (isinstance(kv[0], str), kv[0]))
-        header = b"\xd9\xd9\xf7"  # tag(55799)
+        # Netflix のキーソート: 文字列キーをアルファベット順で先、整数キーを降順で後
+        str_items = sorted([(k, v) for k, v in obj.items() if isinstance(k, str)])
+        int_items = sorted(
+            [(k, v) for k, v in obj.items() if isinstance(k, int)],
+            reverse=True,
+        )
+        items = str_items + int_items
+        header = b"\xd9\xd9\xf7" if _top else b""  # tag(55799) はトップレベルのみ
         n = len(items)
         if n < 24:
             header += bytes([0xA0 | n])
@@ -136,7 +146,7 @@ def nf_cbor_encode(obj: object) -> bytes:
                 body += _nf_encode_text(k)
             else:
                 raise EncodeError(f"Unsupported key type: {type(k)}")
-            body += nf_cbor_encode(v)
+            body += nf_cbor_encode(v, _top=False)
         return header + body
     elif isinstance(obj, bytes):
         return _nf_encode_bytes(obj)
@@ -152,7 +162,7 @@ def nf_cbor_encode(obj: object) -> bytes:
             header = bytes([0x80 | n])
         else:
             header = b"\x98" + bytes([n])
-        return header + b"".join(nf_cbor_encode(item) for item in obj)
+        return header + b"".join(nf_cbor_encode(item, _top=False) for item in obj)
     else:
         raise EncodeError(f"Unsupported type: {type(obj)}")
 
