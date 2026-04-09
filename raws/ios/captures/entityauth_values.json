@@ -1,0 +1,15 @@
+{
+  "esn_full": "NFAPPL-02-IPHONE9=1-AD0455EF27D3A7B8F0872932FD9837874AF3E6F90157195BD22A8063FEB0B79E",
+  "esn_prefix": "NFAPPL-02-IPHONE9=1-",
+  "esn_suffix": "D0455EF27D3A7B8F0872932FD9837874AF3E6F90157195BD22A8063FEB0B79E",
+  "appid": "a2becfec-b286-535c-b884-903a384caee6",
+  "appkeyversion": 1,
+  "devicetoken_hex": "0608a1b7ebdc0312bc01294186432894d3df440e5a2f7581b988e99a54b7d1ae1fde630e8fd57a36a3a784b0638e23be93870f1a007b3bbc69e50cdb919fc2210ac27646d5a9eefe9735d06e8e6cefd67904ed87b6f5c73d4a94e94c308de120921fe9f630bf0b8c6dff9ae7dc1ec978a8e60e42fcaa5a28097c9404b4330a87edff834f40abb225e7ae3e48a33df3e9a4b81ac114eaf6d04cb4837d82e66364bf4df195e15ebff99178fd55c549c8d632668e05987a5fd6c0ac13eee2f3db555c473eeb66461806220e0a0c05b9632884a5c8520a0d00ef",
+  "devicetoken_size": 216,
+  "mgk_enc_key_0": "0817065e29e6d1c8668473af9e13b3c2",
+  "mgk_sign_key_0": "91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1",
+  "appboot_sign_key": "38b2030dd55e3367290213ca0d16ee079524ccd24fb7221a52145fb6de016fd8",
+  "session_sign_key": "8887ddf118e5174e03d42141ff10fed4d1fd88f35fba39340a6f1c4ac62f90f8",
+  "appboot_blob_size": 8549,
+  "note": "apphmac derivation unknown - not a static value. Sign key 38b2030d origin TBD."
+}

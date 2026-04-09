@@ -138,6 +138,35 @@ NFWebCrypto の全 6 HMAC call site を静的解析した結果、すべてラ�
 | PSK / Nonce | **抽出済み** | Yes — `constants.IOS_KDF_PSK` / `IOS_KDF_NONCE` |
 | Device header (128B) | **抽出済み** | Yes — `constants.IOS_KEY336_DEVICE_HEADER` |
 | TFIT tables | **抽出済み** | Yes — `emulate_tfit.py` で Unicorn エミュレーション |
-| apphmac | **要ランタイムキャプチャ** | No — Frida で鍵と入力を特定後、Python 再現の可能性あり |
-| devicetoken | **要ランタイムキャプチャ** | No — NRM サービス応答。キャプチャ値をパラメータとして渡す |
-| device_key_data | **要ランタイムキャプチャ** | 部分的 — CBOR 構造は既知、MGK 部分は TFIT で再現可能 |
+| apphmac | **要ランタイムキャプチャ** | No — appboot blob 内に埋め込み。導出ロジック未解明 |
+| devicetoken | **キャプチャ済み (216B)** | パラメータとして渡す — `raws/ios/captures/devicetoken.bin` |
+| device_key_data | **構造解明済み** | CBOR ランタイム組立。appboot blob (8549B) としてキャプチャ済み |
+| Full ESN | **キャプチャ済み** | `NFAPPL-02-IPHONE9=1-AD0455EF27D3A7B8F0872932FD983787...` |
+| AppID | **キャプチャ済み** | `a2becfec-b286-535c-b884-903a384caee6` |
+| AppKeyVersion | **キャプチャ済み** | `1` |
+| Appboot sign key | **キャプチャ済み** | `38b2030d...` (導出元は未解明) |
+
+### 追加発見事項 (Tweak ランタイムキャプチャ 2026-04-09)
+
+**appboot リクエスト blob (8549B) の構造:**
+```
+[0:20]    ESN prefix (ASCII: "NFAPPL-02-IPHONE9=1-")
+[20]      NULL terminator
+[21:28]   Header/flags (00 00 01 00 00 00 00)
+[28:8210] Encrypted body (8182B — TFIT/AES 暗号化された entity_auth + key_exchange)
+[8210:8212] Length prefix (73 15)
+[8212:8296] Full ESN (ASCII, 84 chars)
+[8296:8332] AppID UUID (ASCII, 36 chars)
+[8332]    AppKeyVersion (ASCII "1")
+[8333:8549] DeviceToken protobuf (216B)
+```
+
+**HMAC 署名チェーン:**
+1. Phase 3 KDF: `HMAC(PSK, MGK)` → 6段チェーン → enc_key_1, sign_key_1, session_bind
+2. sign_key_1 で 3 つのチャンク (76B/92B/76B) を署名 — key exchange 関連
+3. `38b2030d...` で 8549B appboot blob 全体を署名 — **導出元不明**
+4. `8887ddf1...` で CBOR メッセージを署名 — Phase 2 KDF 出力 (DH 後のセッション鍵)
+
+**MGK 値 (このデバイス):**
+- enc_key_0: `0817065e29e6d1c8668473af9e13b3c2`
+- sign_key_0: `91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1`
