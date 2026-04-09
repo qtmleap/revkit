@@ -1,12 +1,17 @@
 # Unknown Values Investigation Report
 
 Date: 2026-04-09
+Updated: 2026-04-09
 
-appboot → MSL 認証の Python 実装に必要な未知の値の調査結果。
+appboot → MSL 認証の Python 実装に必要な全値の調査結果。
+各値について **固定/可変**、**再利用可否**、**Python 再現可否** を明記する。
 
 ---
 
-## 1. 抽出済み (バイナリにハードコード)
+## 1. バイナリ固定値 (アプリバージョン単位で不変)
+
+これらはすべて Netflix iOS バイナリにハードコードされており、アプリが更新されない限り不変。
+Python 定数として埋め込み済みで、追加調査は不要。
 
 ### kAppBootKey — RSA-4096 SPKI/DER (550B)
 
@@ -18,6 +23,9 @@ appboot → MSL 認証の Python 実装に必要な未知の値の調査結果�
 | 用途 | appboot レスポンスの RSASSA-PKCS1-v1_5 署名検証 |
 | ハンドル | `"ABKP"` |
 | Python 定数 | `constants.IOS_APPBOOT_RSA_KEY_DER` |
+| **固定/可変** | **固定** — バイナリ埋め込み |
+| **再利用可否** | **可** — アプリバージョンが同じなら不変 |
+| **Python 再現** | **可** — 定数として利用 |
 
 ### kAppBootEccKey — ECDSA P-256 SPKI/DER (91B)
 
@@ -29,6 +37,9 @@ appboot → MSL 認証の Python 実装に必要な未知の値の調査結果�
 | 用途 | appboot レスポンスの ECDSA 署名検証 |
 | ハンドル | `"ABECCKP"` |
 | Python 定数 | `constants.IOS_APPBOOT_ECC_KEY_DER` |
+| **固定/可変** | **固定** — バイナリ埋め込み |
+| **再利用可否** | **可** |
+| **Python 再現** | **可** |
 
 ### kSharkBootKey (prod) — ECDSA P-256 SPKI/DER (91B)
 
@@ -38,6 +49,9 @@ appboot → MSL 認証の Python 実装に必要な未知の値の調査結果�
 | オフセット | `0x0020d08f` |
 | 用途 | Shark boot 署名検証 |
 | Python 定数 | `constants.IOS_SHARKBOOT_KEY_DER` |
+| **固定/可変** | **固定** |
+| **再利用可否** | **可** |
+| **Python 再現** | **可** |
 
 ### DH Prime p — 1024-bit (128B)
 
@@ -48,6 +62,9 @@ appboot → MSL 認証の Python 実装に必要な未知の値の調査結果�
 | ロード関数 | `IosAdhKeyx::dhKeyGen` @ vaddr `0x00079d20` |
 | Generator g | `5` (vaddr `0x00079d98`) |
 | Python 定数 | `constants.IOS_DH_P`, `constants.IOS_DH_G` |
+| **固定/可変** | **固定** — バイナリ埋め込み |
+| **再利用可否** | **可** |
+| **Python 再現** | **可** — `cryptography` ライブラリで DH 計算 |
 
 ```
 9694e9d8 d93a5ac7 4c509b4b bce85e92
@@ -60,22 +77,104 @@ c3ee47d6 68b6b766 87c2fe90 a35b5e60
 aa1b6089 d6c0b561 a8e520e7 96de27df
 ```
 
-### PSK / KDF Nonce (既知、再確認)
+### PSK / KDF Nonce
 
 | 値 | オフセット | サイズ |
 |----|-----------|--------|
 | PSK: `027617984f6227539a630b897c017d69` | NFWebCrypto @ `0x1ac8f5` | 16B |
 | Nonce: `809f82a7addf548d3ea9dd067ff9bb91` | NFWebCrypto @ `0x1ac905` | 16B |
 
+| **固定/可変** | **固定** — バイナリ埋め込み |
+|--------------|--------------------------|
+| **再利用可否** | **可** |
+| **Python 再現** | **可** — `constants.IOS_KDF_PSK` / `IOS_KDF_NONCE` |
+
+### Device Header (128B CBOR)
+
+| 項目 | 値 |
+|------|-----|
+| 用途 | key 33.6 scheme_data の先頭 128 バイト |
+| Python 定数 | `constants.IOS_KEY336_DEVICE_HEADER` |
+| **固定/可変** | **固定** — iPhone デバイスタイプ共通 (165/180 サンプルで一致) |
+| **再利用可否** | **可** |
+| **Python 再現** | **可** |
+
+### AppID
+
+| 項目 | 値 |
+|------|-----|
+| 値 | `a2becfec-b286-535c-b884-903a384caee6` |
+| **固定/可変** | **固定の可能性が高い** — 全キャプチャで同一値。UUIDv5 形式 (deterministic) |
+| **再利用可否** | **可** (要確認: アプリバージョン更新で変わる可能性あり) |
+| **Python 再現** | **可** — 定数として埋め込み |
+| **追加調査** | 複数バージョンで値が同一か確認 |
+
+### AppKeyVersion
+
+| 項目 | 値 |
+|------|-----|
+| 値 | `1` |
+| **固定/可変** | **固定の可能性が高い** — 全キャプチャで同一値 |
+| **再利用可否** | **可** |
+| **Python 再現** | **可** |
+| **追加調査** | サーバー側で拒否される場合はバージョン依存の可能性あり |
+
 ---
 
-## 2. ランタイム生成 (ハードコードされていない)
+## 2. デバイス固有値 (デバイス依存だが再現可能)
+
+### Full ESN
+
+| 項目 | 値 |
+|------|-----|
+| キャプチャ値 | `NFAPPL-02-IPHONE9=1-AD0455EF27D3A7B8F0872932FD9837874AF3E6F90157195BD22A8063FEB0B79E` |
+| 構造 | `NFAPPL-02-{MODEL}={VARIANT}-{64HEXCHARS}` |
+| **固定/可変** | **デバイス固有・固定** — 同一デバイスでは不変。デバイスが変われば変わる |
+| **再利用可否** | **可** — 同一デバイスに対しては永続的に有効 |
+| **Python 再現** | **不可** — ESN 生成ロジックは未解明。キャプチャ値をパラメータとして渡す |
+| **追加調査** | ESN suffix (64 hex chars) の導出元。Keychain/デバイス識別子から生成？ |
+
+### MGK (Model Group Key): enc_key_0 + sign_key_0
+
+| 項目 | 値 |
+|------|-----|
+| enc_key_0 | `0817065e29e6d1c8668473af9e13b3c2` (16B) |
+| sign_key_0 | `91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1` (32B) |
+| 導出元 | `SHA384(ESN)` → 3× TFIT-WB-AES-128-ECB → enc_key_0 (16B) + sign_key_0 (32B) |
+| **固定/可変** | **ESN 依存・固定** — 同一 ESN からは常に同一の MGK が導出される |
+| **再利用可否** | **可** — ESN が同じなら毎回同じ値 |
+| **Python 再現** | **可** — `tools/emulate_tfit.py` (Unicorn ARM64 エミュレーション) |
+| **追加調査** | 不要 — Phase 3 KDF のライブ HMAC ログと Python 実装の出力が完全一致を確認済み |
+
+---
+
+## 3. ランタイム可変値 (要調査)
+
+### devicetoken (216B, protobuf)
+
+| 項目 | 値 |
+|------|-----|
+| キャプチャ hex | `0608a1b7ebdc0312bc01...0a0d00ef` (216B) |
+| 取得元 | Nbp.framework → NRM (Netflix Registration Management) サービスへ HTTP リクエスト |
+| 取得関数 | `-[MslRegistration getDeviceTokensWithCallback:]` @ Nbp `0x0005d5c0` |
+| protobuf 構造 | field 1 (varint): ID, field 2 (188B): opaque payload, field 4: nested proto |
+| **固定/可変** | **可変** — NRM サービスから取得。241 セッション中 41 種のユニーク値を観測 |
+| **再利用可否** | **不明** — 有効期限がある可能性。同一セッション内では安定 |
+| **Python 再現** | **不可** — NRM サービスとの通信プロトコルが未解明 |
+| **追加調査が必要** | ★ 有効期限の有無。一度取得した値がどのくらい再利用可能か。NRM API の仕様 |
 
 ### apphmac (32B, HMAC-SHA256)
 
-**結論: バイナリに固定鍵なし。ランタイム導出。**
+| 項目 | 値 |
+|------|-----|
+| **固定/可変** | **毎回可変** — appboot リクエストごとに異なる |
+| **再利用可否** | **不可** |
+| **Python 再現** | **不可** — 導出ロジック (鍵 + 入力) が未解明 |
+| **追加調査が必要** | ★★ 最大のブロッカー。以下を解明する必要がある: |
 
-NFWebCrypto の全 6 HMAC call site を静的解析した結果、すべてランタイム導出の鍵を使用:
+**静的解析の結果:**
+NFWebCrypto の全 6 HMAC call site を静的解析した結果、すべてランタイム導出の鍵を使用。
+バイナリに固定の HMAC 鍵は存在しない。
 
 | Call site | 関数 | 鍵ソース |
 |-----------|------|----------|
@@ -86,74 +185,50 @@ NFWebCrypto の全 6 HMAC call site を静的解析した結果、すべてラ�
 | `0x0001aa4c` | HMAC wrapper (SHA256) | caller 引数 |
 | `0x0001aac8` | HMAC wrapper (SHA384) | caller 引数 |
 
-**キャプチャ方法**: `hook_entityauth_capture.js` で HMAC 出力 32B をフィルタ。入力 216B (devicetoken サイズ) の HMAC コールが `apphmac = HMAC(PSK, devicetoken)` の有力候補。
+**Tweak キャプチャの結果:**
+IosMGKAuthData コンストラクタ (MslClient @ base+0xd45c) が発火しなかった。
+apphmac は appboot blob (8549B) の暗号化された本体部分に埋め込まれており、
+HMAC フックからは個別に特定できなかった。
 
-### devicetoken (216B, protobuf)
+**調査方針:**
+1. IosMGKAuthData コンストラクタのオフセットが正しいか再検証 (バイナリバージョン差異)
+2. `FpsMgkAppIdAuthData::getAuthData()` @ `0x000284bc` をフックして apphmac を直接キャプチャ
+3. apphmac が `HMAC(PSK, devicetoken)` かどうかをテスト (Frida で入力 216B の HMAC コールを監視)
 
-**結論: NRM (Netflix Registration Management) サービスからランタイム取得。**
+### appboot sign key (32B)
 
-- **Nbp.framework**: `-[MslRegistration getDeviceTokensWithCallback:]` @ `0x0005d5c0`
-  → `getNRMCookieWithESN:callback:` → NRM サービスへ HTTP リクエスト
-  → レスポンスの `tokens` プロパティ → `initWithGUID:tokens:` で credentials 構築
-- **MslClient.framework**: `IosMGKAuthenticationData` コンストラクタ @ `0x0000d45c` の第5引数
-- protobuf 構造: field 2 = 188B opaque payload, field 3 = type enum (6), field 4 = 14B nested proto
-- セッション間で安定 (241 セッション中 41 種のユニーク値)
+| 項目 | 値 |
+|------|-----|
+| キャプチャ値 | `38b2030dd55e3367290213ca0d16ee079524ccd24fb7221a52145fb6de016fd8` |
+| 用途 | appboot リクエスト全体 (8549B) の HMAC-SHA256 署名 |
+| **固定/可変** | **可変 (導出値)** — セッションごとに異なる可能性 |
+| **再利用可否** | **不可** — 導出元が不明なため再現できない |
+| **Python 再現** | **不可** — 導出ロジック未解明 |
+| **追加調査が必要** | ★★ apphmac と並ぶブロッカー |
 
-**キャプチャ方法**: `hook_entityauth_capture.js` で Nbp シンボルをフック、または `IosMGKAuthenticationData` コンストラクタ引数をキャプチャ。
+**既知の事実:**
+- Phase 3 KDF の出力 (sign_key_1 = `d45443fa...`) ではない
+- Phase 2 KDF の出力 (session sign key = `8887ddf1...`) でもない
+- `SHA256(sign_key_1)` でもない
+- キャッシュクリア後の再起動でも同じ値が出現 → ESN/MGK から決定的に導出されている可能性
+- Phase 2 (DH) の前に使用されている → DH 共有秘密には依存しない
 
-### device_key_data (~6,576B)
-
-**結論: ランタイム組立の CBOR 構造体。単一の静的 blob ではない。**
-
-`entity_auth_data` は以下の CBOR フィールドから組み立てられる:
-
-**IosMGKAuthenticationData** (@ `0x000103bc`):
-
-| フィールド | オフセット | 内容 |
-|-----------|-----------|------|
-| `identity` | +0x98 | ESN 文字列 |
-| `appid` | +0xb0 | アプリケーション ID |
-| `appkeyversion` | +0xc8 | 整数 |
-| `apphmac` | +0xd0 | Base64 HMAC |
-| `devicetoken` | +0xe8 | NRM トークン |
-
-**FpsMgkAppIdAuthData** (@ `0x00029bec`): `devtype`, `mgkid`, `keyrequest`, `appid`, `appkeyversion`, `apphmac`, `devicetoken`
-
-6,576B は TFIT-WB-AES 暗号化された MGK 鍵素材 (`mgkid`/`keyrequest`) を含む CBOR エンコーディング全体のサイズ。
-
-**キャプチャ方法**: `hook_entityauth_capture.js` で NSData/sqlite フック、または appboot リクエスト全体をバイナリキャプチャして CBOR デコード。
+**調査方針:**
+1. Phase 3 KDF の中間値やバリエーションを網羅的にテスト
+2. `HMAC(sign_key_1, ESN)`, `HMAC(session_bind, ESN)` 等の候補を Python で計算し照合
+3. MslClient.framework の appboot リクエスト組立関数をデコンパイルし、署名鍵の取得パスを追跡
 
 ---
 
-## 3. まとめ
+## 4. appboot blob の構造 (8549B)
 
-### Python 実装で必要な値の状態
+Tweak (`NetflixEntityAuth`) で HMAC 署名対象として 8549B の完全な blob をキャプチャ。
 
-| 値 | 状態 | Python で再現可能か |
-|----|------|-------------------|
-| kAppBootKey (RSA-4096) | **抽出済み** | Yes — `constants.IOS_APPBOOT_RSA_KEY_DER` |
-| kAppBootEccKey (P-256) | **抽出済み** | Yes — `constants.IOS_APPBOOT_ECC_KEY_DER` |
-| DH prime p | **抽出済み** | Yes — `constants.IOS_DH_P` |
-| DH generator g | **抽出済み** | Yes — `constants.IOS_DH_G = 5` |
-| PSK / Nonce | **抽出済み** | Yes — `constants.IOS_KDF_PSK` / `IOS_KDF_NONCE` |
-| Device header (128B) | **抽出済み** | Yes — `constants.IOS_KEY336_DEVICE_HEADER` |
-| TFIT tables | **抽出済み** | Yes — `emulate_tfit.py` で Unicorn エミュレーション |
-| apphmac | **要ランタイムキャプチャ** | No — appboot blob 内に埋め込み。導出ロジック未解明 |
-| devicetoken | **キャプチャ済み (216B)** | パラメータとして渡す — `raws/ios/captures/devicetoken.bin` |
-| device_key_data | **構造解明済み** | CBOR ランタイム組立。appboot blob (8549B) としてキャプチャ済み |
-| Full ESN | **キャプチャ済み** | `NFAPPL-02-IPHONE9=1-AD0455EF27D3A7B8F0872932FD983787...` |
-| AppID | **キャプチャ済み** | `a2becfec-b286-535c-b884-903a384caee6` |
-| AppKeyVersion | **キャプチャ済み** | `1` |
-| Appboot sign key | **キャプチャ済み** | `38b2030d...` (導出元は未解明) |
-
-### 追加発見事項 (Tweak ランタイムキャプチャ 2026-04-09)
-
-**appboot リクエスト blob (8549B) の構造:**
 ```
 [0:20]    ESN prefix (ASCII: "NFAPPL-02-IPHONE9=1-")
 [20]      NULL terminator
 [21:28]   Header/flags (00 00 01 00 00 00 00)
-[28:8210] Encrypted body (8182B — TFIT/AES 暗号化された entity_auth + key_exchange)
+[28:8210] Encrypted body (8182B — 暗号化された entity_auth + key_exchange)
 [8210:8212] Length prefix (73 15)
 [8212:8296] Full ESN (ASCII, 84 chars)
 [8296:8332] AppID UUID (ASCII, 36 chars)
@@ -161,12 +236,65 @@ NFWebCrypto の全 6 HMAC call site を静的解析した結果、すべてラ�
 [8333:8549] DeviceToken protobuf (216B)
 ```
 
-**HMAC 署名チェーン:**
-1. Phase 3 KDF: `HMAC(PSK, MGK)` → 6段チェーン → enc_key_1, sign_key_1, session_bind
-2. sign_key_1 で 3 つのチャンク (76B/92B/76B) を署名 — key exchange 関連
-3. `38b2030d...` で 8549B appboot blob 全体を署名 — **導出元不明**
-4. `8887ddf1...` で CBOR メッセージを署名 — Phase 2 KDF 出力 (DH 後のセッション鍵)
+暗号化本体 (8182B) には entity_auth_data の apphmac、key_exchange の DH 公開鍵、
+key 33.6 scheme_data 等が含まれるが、暗号化されているため直接読めない。
 
-**MGK 値 (このデバイス):**
-- enc_key_0: `0817065e29e6d1c8668473af9e13b3c2`
-- sign_key_0: `91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1`
+保存先: `raws/ios/captures/appboot_blob.bin`
+
+---
+
+## 5. HMAC 署名チェーン (ライブキャプチャ)
+
+appboot 時の HMAC 呼び出し順序と使用鍵:
+
+| 順序 | 鍵 | データ | 用途 |
+|------|-----|--------|------|
+| 1-6 | PSK / 前段出力 / Nonce | MGK (48B) の各パーツ | Phase 3 KDF (6 段チェーン) |
+| 7-9 | sign_key_1 (`d45443fa...`) | 76B / 92B / 76B チャンク | key exchange データ署名 |
+| 10 | session sign key (`8887ddf1...`) | 389B CBOR | MSL ヘッダー署名 |
+| 11 | **appboot sign key (`38b2030d...`)** | **8549B appboot blob** | **appboot リクエスト署名** |
+| 12+ | session sign key (`8887ddf1...`) | CBOR メッセージ各種 | 通常の MSL 通信 |
+
+- Phase 3 KDF (順序 1-6) は Python 実装と完全一致を確認済み
+- session sign key (`8887ddf1...`) は Phase 2 KDF (DH 共有秘密) から導出されたもの
+- appboot sign key (`38b2030d...`) の導出元が最大の未解明事項
+
+---
+
+## 6. 全値の分類まとめ
+
+### Python 単体で再現可能 (追加調査不要)
+
+| 値 | 固定/可変 | Python 定数/関数 |
+|----|----------|-----------------|
+| kAppBootKey (RSA-4096) | バイナリ固定 | `constants.IOS_APPBOOT_RSA_KEY_DER` |
+| kAppBootEccKey (P-256) | バイナリ固定 | `constants.IOS_APPBOOT_ECC_KEY_DER` |
+| kSharkBootKey (P-256) | バイナリ固定 | `constants.IOS_SHARKBOOT_KEY_DER` |
+| DH prime p / g | バイナリ固定 | `constants.IOS_DH_P` / `IOS_DH_G` |
+| PSK / Nonce | バイナリ固定 | `constants.IOS_KDF_PSK` / `IOS_KDF_NONCE` |
+| Device header (128B) | バイナリ固定 | `constants.IOS_KEY336_DEVICE_HEADER` |
+| TFIT tables | バイナリ固定 | `tools/emulate_tfit.py` |
+| MGK (enc_key_0 + sign_key_0) | ESN 依存・決定的 | `emulate_tfit.py` で導出 |
+| Phase 3 KDF 全出力 | MGK 依存・決定的 | `crypto.kdf_renew()` |
+| DH 鍵生成/共有秘密 | 毎回ランダム | `crypto.generate_dh_keypair()` |
+| Phase 2 KDF 全出力 | DH 依存・決定的 | `crypto.derive_initial_session_keys()` |
+| AppID | 固定の可能性高 | 定数として埋め込み |
+| AppKeyVersion | 固定の可能性高 | 定数として埋め込み |
+
+### デバイスから1回取得すれば再利用可能
+
+| 値 | 固定/可変 | 取得方法 | 再利用条件 |
+|----|----------|---------|-----------|
+| Full ESN | デバイス固有・固定 | Tweak/Frida でキャプチャ | 同一デバイスなら永続 |
+
+### 要追加調査 (Python 実装のブロッカー)
+
+| 値 | 固定/可変 | 再利用 | 調査優先度 | 調査内容 |
+|----|----------|--------|-----------|---------|
+| **apphmac** (32B) | 毎回可変 | 不可 | ★★ 最高 | 導出ロジック (鍵 + 入力) の解明 |
+| **appboot sign key** (32B) | 可変 (導出値) | 不可 | ★★ 最高 | 導出元の特定。Phase 3 中間値？ |
+| **devicetoken** (216B) | 可変 | 不明 | ★ 高 | 有効期限。NRM API 仕様。再利用可能期間 |
+
+> **結論**: apphmac と appboot sign key の導出ロジックを解明しない限り、
+> Python 単体で appboot リクエストを構築・署名することは不可能。
+> これが現時点での最大のブロッカーである。
