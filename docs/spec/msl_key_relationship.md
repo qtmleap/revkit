@@ -17,34 +17,35 @@
 
 ```mermaid
 graph LR
-    ESN["ESN (device-specific)"] --> SHA384_ESN["SHA384"]
-    SHA384_ESN --> TFIT_ECB["TFIT-WB-AES-128-ECB x3"]
-    TFIT_TBL["TFIT Tables 199KB"] --> TFIT_ECB
-    TFIT_ECB --> MGK_ENC["MGK key = enc_key_0 128-bit"]
-    TFIT_ECB --> MGK_SIGN["MGK vector = sign_key_0 256-bit"]
+    ESN["ESN (device-specific)"] --> OP_SHA0(["SHA384"])
+    TFIT_TBL["TFIT Tables 199KB"] -->|key schedule| OP_TFIT0(["TFIT-WB-AES-128-ECB x3"])
+    OP_SHA0 --> OP_TFIT0
+    OP_TFIT0 --> MGK_ENC["enc_key_0 128-bit"]
+    OP_TFIT0 --> MGK_SIGN["sign_key_0 256-bit"]
 
     style TFIT_TBL fill:#e74c3c,stroke:#c0392b,color:#fff
     style MGK_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
     style MGK_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SHA384_ESN fill:#2ecc71,stroke:#27ae60,color:#fff
-    style TFIT_ECB fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_SHA0 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_TFIT0 fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### Phase 1: appboot Key Exchange
 
 ```mermaid
 graph LR
-    DH_P["DH p 1024-bit"] --> DH_GEN["DH Key Pair Gen"]
-    DH_G["DH g = 5"] --> DH_GEN
-    DH_GEN --> DH_PUB["Client DH Public Key 128B"]
-    DH_PUB -->|TFIT-WB-AES-128-ECB x8 blocks| TFIT_DH["TFIT-Encrypted DH PubKey 128B"]
-    TFIT_DH --> KEY336_PT["key 33.6 plaintext = CBOR + TFIT-DH + MGK + per-req"]
-    MGK["MGK Pair 32B"] --> KEY336_PT
-    NONCE_SRV["key 33.9 nonce 16B"] -->|XOR each block| KEY336_ENC["key 33.6 ciphertext"]
-    KEY336_PT --> KEY336_ENC
+    DH_P["DH p 1024-bit"] --> OP_DHGEN(["DH_generate_key"])
+    DH_G["DH g = 5"] --> OP_DHGEN
+    OP_DHGEN --> DH_PUB["Client DH PubKey 128B"]
+    DH_PUB --> OP_TFIT1(["TFIT-WB-AES-128-ECB x8"])
+    OP_TFIT1 --> KEY336_PT["key 33.6 plaintext 352B"]
+    FROM_P0[/"from Phase 0: MGK Pair 32B"/] --> KEY336_PT
+    NONCE_SRV["key 33.9 nonce 16B"] -->|XOR each block| OP_XOR(["XOR Encode"])
+    KEY336_PT --> OP_XOR
+    OP_XOR --> KEY336_ENC["key 33.6 ciphertext"]
     KEY336_ENC -->|POST /appboot| SERVER["Netflix Server"]
     SERVER --> DH_RESP["appboot Response key 33"]
-    ECC_BOOT["kAppBootEccKey ECDSA P-256"] -.->|signature verify?| DH_RESP
+    ECC_BOOT["kAppBootEccKey P-256"] -.->|verify?| DH_RESP
 
     style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
     style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
@@ -52,10 +53,12 @@ graph LR
     style NONCE_SRV fill:#2ecc71,stroke:#27ae60,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
-    style TFIT_DH fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_DHGEN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_TFIT1 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_XOR fill:#2ecc71,stroke:#27ae60,color:#fff
     style KEY336_PT fill:#2ecc71,stroke:#27ae60,color:#fff
     style KEY336_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
-    style MGK fill:#2ecc71,stroke:#27ae60,color:#fff
+    style FROM_P0 fill:#555,stroke:#333,color:#fff
 ```
 
 > **Note**: key 33.9 nonce is a 16B random value generated per-session by the client. Distinct from the hardcoded nonce at 0x1AC905.
@@ -64,22 +67,23 @@ graph LR
 
 ```mermaid
 graph LR
-    DH_RESP["appboot Response key 33"] -->|Server DH PubKey| DH_COMPUTE["DH_compute_key"]
-    DH_PRIV["Client DH PrivKey"] -->|from Phase 1| DH_COMPUTE
-    DH_COMPUTE --> DH_SHARED["DH Shared Secret 1024-bit"]
-    SB_IN["session_bind upper 16B"] -->|Phase 3 KDF intermediate| SHA384_OP["SHA384"]
-    SHA384_OP --> KEY48["48B Key 384-bit"]
-    KEY48 -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
-    DH_SHARED -->|0x00 + shared secret| PHASE2_KDF
-    PHASE2_KDF --> NEW_ENC["new enc_key 128-bit"]
-    PHASE2_KDF --> NEW_SIGN["new sign_key = bootstrap_key 256-bit"]
+    FROM_P1[/"from Phase 1: appboot Response"/] -->|Server DH PubKey| OP_DH(["DH_compute_key"])
+    DH_PRIV["Client DH PrivKey"] -->|from Phase 1| OP_DH
+    OP_DH --> DH_SHARED["DH Shared Secret 1024-bit"]
+    FROM_P3[/"from Phase 3: session_bind upper 16B"/] --> OP_SHA2(["SHA384"])
+    OP_SHA2 --> KEY48["48B Key 384-bit"]
+    KEY48 -->|HMAC key| OP_HMAC(["HMAC-SHA384"])
+    DH_SHARED -->|0x00 + shared secret| OP_HMAC
+    OP_HMAC --> NEW_ENC["new enc_key 128-bit"]
+    OP_HMAC --> NEW_SIGN["new sign_key = bootstrap_key 256-bit"]
 
-    style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
-    style DH_COMPUTE fill:#2ecc71,stroke:#27ae60,color:#fff
+    style FROM_P1 fill:#555,stroke:#333,color:#fff
+    style FROM_P3 fill:#555,stroke:#333,color:#fff
+    style OP_DH fill:#2ecc71,stroke:#27ae60,color:#fff
     style DH_SHARED fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SHA384_OP fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_SHA2 fill:#2ecc71,stroke:#27ae60,color:#fff
     style KEY48 fill:#2ecc71,stroke:#27ae60,color:#fff
-    style PHASE2_KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_HMAC fill:#2ecc71,stroke:#27ae60,color:#fff
     style NEW_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
     style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
@@ -88,19 +92,20 @@ graph LR
 
 ```mermaid
 graph LR
-    PSK["PSK 128-bit"] -->|HMAC key| KDF["KDF HMAC-SHA256 chain"]
-    MGK_ENC["enc_key_0 128-bit"] -->|Phase 0 output| KDF
-    MGK_SIGN["sign_key_0 256-bit"] -->|Phase 0 output| KDF
-    NONCE["nonce 128-bit"] -->|input| KDF
-    KDF --> ENC1["enc_key_1 128-bit"]
-    KDF --> SIGN1["sign_key_1 256-bit"]
-    KDF -->|session_bind| SB["to Phase 2"]
+    PSK["PSK 128-bit"] -->|HMAC key| OP_KDF(["KDF HMAC-SHA256 chain"])
+    FROM_P0b[/"from Phase 0: enc_key_0"/] --> OP_KDF
+    FROM_P0c[/"from Phase 0: sign_key_0"/] --> OP_KDF
+    NONCE["nonce 128-bit"] -->|input| OP_KDF
+    OP_KDF --> ENC1["enc_key_1 128-bit"]
+    OP_KDF --> SIGN1["sign_key_1 256-bit"]
+    OP_KDF -->|session_bind upper 16B| TO_P2[/"to Phase 2"/]
 
     style PSK fill:#e74c3c,stroke:#c0392b,color:#fff
     style NONCE fill:#e74c3c,stroke:#c0392b,color:#fff
-    style MGK_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
-    style MGK_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
-    style KDF fill:#2ecc71,stroke:#27ae60,color:#fff
+    style FROM_P0b fill:#555,stroke:#333,color:#fff
+    style FROM_P0c fill:#555,stroke:#333,color:#fff
+    style TO_P2 fill:#555,stroke:#333,color:#fff
+    style OP_KDF fill:#2ecc71,stroke:#27ae60,color:#fff
     style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
     style SIGN1 fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
@@ -110,15 +115,15 @@ graph LR
 ```mermaid
 graph LR
     SERVER["Netflix Server"] -->|key_response_data| KRD["Encrypted New Keys"]
-    ENC1["enc_key_1 128-bit"] -->|AES-128-CBC decrypt key| DECRYPT["AES-CBC Decrypt"]
-    KRD --> DECRYPT
-    DECRYPT --> ENC2["enc_key_2 128-bit"]
-    DECRYPT --> SIGN2["sign_key_2 256-bit"]
+    FROM_P3b[/"from Phase 3: enc_key_1"/] -->|decrypt key| OP_DEC(["AES-128-CBC Decrypt"])
+    KRD --> OP_DEC
+    OP_DEC --> ENC2["enc_key_2 128-bit"]
+    OP_DEC --> SIGN2["sign_key_2 256-bit"]
 
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style KRD fill:#3498db,stroke:#2980b9,color:#fff
-    style ENC1 fill:#2ecc71,stroke:#27ae60,color:#fff
-    style DECRYPT fill:#2ecc71,stroke:#27ae60,color:#fff
+    style FROM_P3b fill:#555,stroke:#333,color:#fff
+    style OP_DEC fill:#2ecc71,stroke:#27ae60,color:#fff
     style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
     style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
 ```
@@ -127,26 +132,41 @@ graph LR
 
 ```mermaid
 graph LR
-    ENC2["enc_key_2 128-bit"] -->|encrypt / decrypt| MSL_ENC["AES-128-CBC"]
-    SIGN2["sign_key_2 256-bit"] -->|sign / verify| MSL_SIGN["HMAC-SHA256"]
-    NEW_SIGN["bootstrap_key 256-bit"] -->|payload-wide signature| MSL_SIGN2["HMAC-SHA256"]
-    MSL_ENC --> PAYLOAD["manifest / license / logblob"]
-    MSL_SIGN --> PAYLOAD
-    MSL_SIGN2 --> PAYLOAD
+    FROM_P4a[/"from Phase 4: enc_key_2"/] -->|encrypt / decrypt| OP_AES(["AES-128-CBC"])
+    FROM_P4b[/"from Phase 4: sign_key_2"/] -->|sign / verify| OP_HMAC5(["HMAC-SHA256"])
+    FROM_P2[/"from Phase 2: bootstrap_key"/] -->|payload-wide sign| OP_HMAC5b(["HMAC-SHA256"])
+    OP_AES --> PAYLOAD["manifest / license / logblob"]
+    OP_HMAC5 --> PAYLOAD
+    OP_HMAC5b --> PAYLOAD
 
-    style ENC2 fill:#3498db,stroke:#2980b9,color:#fff
-    style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
-    style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
+    style FROM_P4a fill:#555,stroke:#333,color:#fff
+    style FROM_P4b fill:#555,stroke:#333,color:#fff
+    style FROM_P2 fill:#555,stroke:#333,color:#fff
+    style OP_AES fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_HMAC5 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style OP_HMAC5b fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
 ### 凡例
 
-| 色 / 線種 | 意味 |
+| 形状 | 意味 |
+|----|------|
+| `["..."]` 四角 | データ (鍵, 秘密, ESN 等) |
+| `(["..."])` 角丸 | 暗号操作 (SHA384, HMAC, AES 等) |
+| `[/"..."/]` 平行四辺形 | Phase 間参照 (from/to Phase N) |
+
+| 色 | 意味 |
 |----|------|
 | 赤 | バイナリ埋め込み定数 |
 | 青 | サーバーレスポンス由来 |
 | 緑 | 解明済み (Python + Unicorn で計算可能) |
-| 点線 (-.->)  | 関与が推定されるが未実証 |
+| グレー | Phase 間参照ノード |
+
+| 線種 | 意味 |
+|----|------|
+| `-->` 実線 | 確認済みのデータフロー |
+| `-.->` 点線 | 推定 (未実証) |
+| `-->｜label｜` エッジラベル | データの役割 (HMAC key, decrypt key 等) |
 
 ---
 
