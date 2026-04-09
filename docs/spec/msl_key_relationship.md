@@ -32,21 +32,27 @@ graph LR
     DH_G["DH g = 5"] --> DH_GEN
     DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
     DH_PUB -->|TFIT-WB-AES-128-ECB 8ブロック| TFIT_DH["TFIT 暗号化 DH 公開鍵 128B"]
-    TFIT_DH --> KEY336_REQ["key 33.6 = CBOR + TFIT-DH + MGK + 固有データ"]
-    MGK["MGK (enc_key_0 + sign_key_0[:16])"] --> KEY336_REQ
-    KEY336_REQ -->|XOR nonce → POST /appboot| SERVER["Netflix サーバー"]
+    TFIT_DH --> KEY336_PT["key 33.6 平文 = CBOR + TFIT-DH + MGK + 固有データ"]
+    MGK["MGK ペア 32B"] --> KEY336_PT
+    NONCE_SRV["key 33.9 nonce 16B"] -->|XOR 各ブロック| KEY336_ENC["key 33.6 暗号文"]
+    KEY336_PT --> KEY336_ENC
+    KEY336_ENC -->|POST /appboot| SERVER["Netflix サーバー"]
     SERVER --> DH_RESP["appboot レスポンス key 33"]
     ECC_BOOT["kAppBootEccKey ECDSA P-256"] -.->|署名検証?| DH_RESP
 
     style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
     style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
     style ECC_BOOT fill:#e74c3c,stroke:#c0392b,color:#fff
+    style NONCE_SRV fill:#2ecc71,stroke:#27ae60,color:#fff
     style SERVER fill:#3498db,stroke:#2980b9,color:#fff
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
     style TFIT_DH fill:#2ecc71,stroke:#27ae60,color:#fff
-    style KEY336_REQ fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KEY336_PT fill:#2ecc71,stroke:#27ae60,color:#fff
+    style KEY336_ENC fill:#2ecc71,stroke:#27ae60,color:#fff
     style MGK fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
+
+> **注**: key 33.9 nonce はセッション毎にクライアントが生成する 16B ランダム値。ハードコード nonce (0x1AC905) とは別物。
 
 ### Phase 2: 初期セッション鍵導出 (解明済み)
 
