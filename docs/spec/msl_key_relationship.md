@@ -7,13 +7,13 @@
 
 ## 1. 鍵の全体関係
 
-### Phase 0: MGK 生成 (解明済み)
+### Phase 0: MGK Generation (Resolved)
 
 ```mermaid
 graph LR
-    ESN["ESN (デバイス固有)"] --> SHA384_ESN["SHA384"]
-    SHA384_ESN --> TFIT_ECB["TFIT-WB-AES-128-ECB × 3"]
-    TFIT_TBL["TFIT テーブル 199KB"] --> TFIT_ECB
+    ESN["ESN (device-specific)"] --> SHA384_ESN["SHA384"]
+    SHA384_ESN --> TFIT_ECB["TFIT-WB-AES-128-ECB x3"]
+    TFIT_TBL["TFIT Tables 199KB"] --> TFIT_ECB
     TFIT_ECB --> MGK_ENC["MGK key = enc_key_0 128-bit"]
     TFIT_ECB --> MGK_SIGN["MGK vector = sign_key_0 256-bit"]
 
@@ -24,21 +24,21 @@ graph LR
     style TFIT_ECB fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
-### Phase 1: appboot 鍵交換
+### Phase 1: appboot Key Exchange
 
 ```mermaid
 graph LR
-    DH_P["DH p 1024-bit"] --> DH_GEN["DH 鍵ペア生成"]
+    DH_P["DH p 1024-bit"] --> DH_GEN["DH Key Pair Gen"]
     DH_G["DH g = 5"] --> DH_GEN
-    DH_GEN --> DH_PUB["クライアント DH 公開鍵 128B"]
-    DH_PUB -->|TFIT-WB-AES-128-ECB 8ブロック| TFIT_DH["TFIT 暗号化 DH 公開鍵 128B"]
-    TFIT_DH --> KEY336_PT["key 33.6 平文 = CBOR + TFIT-DH + MGK + 固有データ"]
-    MGK["MGK ペア 32B"] --> KEY336_PT
-    NONCE_SRV["key 33.9 nonce 16B"] -->|XOR 各ブロック| KEY336_ENC["key 33.6 暗号文"]
+    DH_GEN --> DH_PUB["Client DH Public Key 128B"]
+    DH_PUB -->|TFIT-WB-AES-128-ECB x8 blocks| TFIT_DH["TFIT-Encrypted DH PubKey 128B"]
+    TFIT_DH --> KEY336_PT["key 33.6 plaintext = CBOR + TFIT-DH + MGK + per-req"]
+    MGK["MGK Pair 32B"] --> KEY336_PT
+    NONCE_SRV["key 33.9 nonce 16B"] -->|XOR each block| KEY336_ENC["key 33.6 ciphertext"]
     KEY336_PT --> KEY336_ENC
-    KEY336_ENC -->|POST /appboot| SERVER["Netflix サーバー"]
-    SERVER --> DH_RESP["appboot レスポンス key 33"]
-    ECC_BOOT["kAppBootEccKey ECDSA P-256"] -.->|署名検証?| DH_RESP
+    KEY336_ENC -->|POST /appboot| SERVER["Netflix Server"]
+    SERVER --> DH_RESP["appboot Response key 33"]
+    ECC_BOOT["kAppBootEccKey ECDSA P-256"] -.->|signature verify?| DH_RESP
 
     style DH_P fill:#e74c3c,stroke:#c0392b,color:#fff
     style DH_G fill:#e74c3c,stroke:#c0392b,color:#fff
@@ -52,21 +52,21 @@ graph LR
     style MGK fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
-> **注**: key 33.9 nonce はセッション毎にクライアントが生成する 16B ランダム値。ハードコード nonce (0x1AC905) とは別物。
+> **Note**: key 33.9 nonce is a 16B random value generated per-session by the client. Distinct from the hardcoded nonce at 0x1AC905.
 
-### Phase 2: 初期セッション鍵導出 (解明済み)
+### Phase 2: Initial Session Key Derivation (Resolved)
 
 ```mermaid
 graph LR
-    DH_RESP["appboot レスポンス key 33"] -->|サーバー DH 公開鍵| DH_COMPUTE["DH_compute_key"]
-    DH_PRIV["クライアント DH 秘密鍵"] -->|Phase 1 で生成| DH_COMPUTE
-    DH_COMPUTE --> DH_SHARED["DH 共有秘密 1024-bit"]
-    SB_IN["session_bind 上位16B"] -->|Phase 3 KDF 中間値| SHA384_OP["SHA384"]
-    SHA384_OP --> KEY48["48B 鍵 384-bit"]
+    DH_RESP["appboot Response key 33"] -->|Server DH PubKey| DH_COMPUTE["DH_compute_key"]
+    DH_PRIV["Client DH PrivKey"] -->|from Phase 1| DH_COMPUTE
+    DH_COMPUTE --> DH_SHARED["DH Shared Secret 1024-bit"]
+    SB_IN["session_bind upper 16B"] -->|Phase 3 KDF intermediate| SHA384_OP["SHA384"]
+    SHA384_OP --> KEY48["48B Key 384-bit"]
     KEY48 -->|HMAC key| PHASE2_KDF["HMAC-SHA384"]
-    DH_SHARED -->|0x00 + 共有秘密| PHASE2_KDF
+    DH_SHARED -->|0x00 + shared secret| PHASE2_KDF
     PHASE2_KDF --> NEW_ENC["new enc_key 128-bit"]
-    PHASE2_KDF --> NEW_SIGN["new sign_key 256-bit"]
+    PHASE2_KDF --> NEW_SIGN["new sign_key = bootstrap_key 256-bit"]
 
     style DH_RESP fill:#3498db,stroke:#2980b9,color:#fff
     style DH_COMPUTE fill:#2ecc71,stroke:#27ae60,color:#fff
@@ -78,17 +78,17 @@ graph LR
     style NEW_SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
-### Phase 3: KDF 鍵更新 (解明済み)
+### Phase 3: KDF Key Renewal (Resolved)
 
 ```mermaid
 graph LR
     PSK["PSK 128-bit"] -->|HMAC key| KDF["KDF HMAC-SHA256 chain"]
-    MGK_ENC["enc_key_0 128-bit"] -->|Phase 0 出力| KDF
-    MGK_SIGN["sign_key_0 256-bit"] -->|Phase 0 出力| KDF
-    NONCE["nonce 128-bit"] -->|入力| KDF
+    MGK_ENC["enc_key_0 128-bit"] -->|Phase 0 output| KDF
+    MGK_SIGN["sign_key_0 256-bit"] -->|Phase 0 output| KDF
+    NONCE["nonce 128-bit"] -->|input| KDF
     KDF --> ENC1["enc_key_1 128-bit"]
     KDF --> SIGN1["sign_key_1 256-bit"]
-    KDF -->|session_bind| SB["→ Phase 2 へ"]
+    KDF -->|session_bind| SB["to Phase 2"]
 
     style PSK fill:#e74c3c,stroke:#c0392b,color:#fff
     style NONCE fill:#e74c3c,stroke:#c0392b,color:#fff
@@ -99,12 +99,12 @@ graph LR
     style SIGN1 fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
-### Phase 4: ログイン鍵配送 (解明済み)
+### Phase 4: Login Key Distribution (Resolved)
 
 ```mermaid
 graph LR
-    SERVER["Netflix サーバー"] -->|key_response_data| KRD["暗号化された新鍵"]
-    ENC1["enc_key_1 128-bit"] -->|AES-128-CBC 復号鍵| DECRYPT["AES-CBC 復号"]
+    SERVER["Netflix Server"] -->|key_response_data| KRD["Encrypted New Keys"]
+    ENC1["enc_key_1 128-bit"] -->|AES-128-CBC decrypt key| DECRYPT["AES-CBC Decrypt"]
     KRD --> DECRYPT
     DECRYPT --> ENC2["enc_key_2 128-bit"]
     DECRYPT --> SIGN2["sign_key_2 256-bit"]
@@ -117,13 +117,13 @@ graph LR
     style SIGN2 fill:#3498db,stroke:#2980b9,color:#fff
 ```
 
-### Phase 5: MSL 通信
+### Phase 5: MSL Communication
 
 ```mermaid
 graph LR
-    ENC2["enc_key_2 128-bit"] -->|暗号化 復号| MSL_ENC["AES-128-CBC"]
-    SIGN2["sign_key_2 256-bit"] -->|署名 検証| MSL_SIGN["HMAC-SHA256"]
-    NEW_SIGN["new sign_key = bootstrap_key"] -->|ペイロード全体署名| MSL_SIGN2["HMAC-SHA256"]
+    ENC2["enc_key_2 128-bit"] -->|encrypt / decrypt| MSL_ENC["AES-128-CBC"]
+    SIGN2["sign_key_2 256-bit"] -->|sign / verify| MSL_SIGN["HMAC-SHA256"]
+    NEW_SIGN["bootstrap_key 256-bit"] -->|payload-wide signature| MSL_SIGN2["HMAC-SHA256"]
     MSL_ENC --> PAYLOAD["manifest / license / logblob"]
     MSL_SIGN --> PAYLOAD
     MSL_SIGN2 --> PAYLOAD
