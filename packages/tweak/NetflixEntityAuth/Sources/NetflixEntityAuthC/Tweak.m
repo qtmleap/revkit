@@ -685,14 +685,34 @@ static SretDummy hook_AppleWebCryptoHKDF(
             infoHex = hexEncodeShort(info->begin, infoLen);
         }
 
-        // Key: shared_ptr<KeyByteArray> -> dereference twice
+        // Key: shared_ptr<KeyByteArray> -> dereference.
+        // KeyByteArray may have vtable or other preamble before vector data.
+        // Dump raw bytes of the pointed-to object to discover actual layout.
         NSString *keyHex = @"(null)";
         size_t keyLen = 0;
         if (key && key->ptr) {
-            const KeyByteArrayLayout *kba = key->ptr;
-            if (kba->begin && kba->end >= kba->begin) {
-                keyLen = (size_t)(kba->end - kba->begin);
-                keyHex = hexEncodeShort(kba->begin, keyLen);
+            // Dump first 128 bytes of the object for layout analysis
+            const uint8_t *rawObj = (const uint8_t *)key->ptr;
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][HKDF] key->ptr raw(128B)=%@",
+                      hexEncode(rawObj, 128)]);
+
+            // Try multiple offsets: the actual data might be at +0, +8, +16, +24
+            // Standard vector {begin,end,cap} but possibly after a vtable ptr
+            for (int off = 0; off <= 48; off += 8) {
+                const uint8_t **ptrs = (const uint8_t **)(rawObj + off);
+                const uint8_t *b = ptrs[0];
+                const uint8_t *e = ptrs[1];
+                if (b && e && e > b && (size_t)(e - b) <= 256) {
+                    keyLen = (size_t)(e - b);
+                    keyHex = hexEncodeShort(b, keyLen);
+                    file_log(g_log_hmac,
+                             [NSString stringWithFormat:
+                              @"[NFXEntityAuth][HKDF] key found at obj+%d: (%zuB)=%@",
+                              off, keyLen, keyHex]);
+                    break;
+                }
             }
         }
 

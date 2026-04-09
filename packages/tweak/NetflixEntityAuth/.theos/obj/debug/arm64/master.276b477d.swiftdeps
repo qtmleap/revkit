@@ -1,7 +1,7 @@
 version: "Swift version 5.8 (swift-5.8-RELEASE)"
 options: "46ac4fc8a6fab716165f87c6eadba55bec7c9ab0850730661a3e566653e8c94c"
-build_start_time: [1775727995, 699198000]
-build_end_time: [1775727995, 829239000]
+build_start_time: [1775731749, 928379000]
+build_end_time: [1775731750, 103601000]
 inputs:
-  "/home/vscode/app/packages/tweak/NetflixEntityAuth/.theos/obj/debug/arm64/generated/NetflixEntityAuth.xc.swift": [1775727995, 0]
+  "/home/vscode/app/packages/tweak/NetflixEntityAuth/.theos/obj/debug/arm64/generated/NetflixEntityAuth.xc.swift": [1775731749, 0]
   "Sources/NetflixEntityAuth/Tweak.x.swift": [1775724899, 0]

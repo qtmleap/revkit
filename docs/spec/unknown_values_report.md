@@ -163,37 +163,53 @@ aa1b6089 d6c0b561 a8e520e7 96de27df
 | **Python 再現** | **不可** — NRM サービスとの通信プロトコルが未解明 |
 | **追加調査が必要** | ★ 有効期限の有無。一度取得した値がどのくらい再利用可能か。NRM API の仕様 |
 
-### apphmac (32B, HMAC-SHA256)
+### apphmac (32B) → **有力候補特定: HKDF(MGK, PSK, Nonce)**
 
 | 項目 | 値 |
 |------|-----|
-| **固定/可変** | **毎回可変** — appboot リクエストごとに異なる |
-| **再利用可否** | **不可** |
-| **Python 再現** | **不可** — 導出ロジック (鍵 + 入力) が未解明 |
-| **追加調査が必要** | ★★ 最大のブロッカー。以下を解明する必要がある: |
+| **固定/可変** | **ESN 依存・決定的** — MGK (ESN + TFIT 依存) から決定的に導出 |
+| **再利用可否** | **可** — 同一 ESN なら常に同一値 |
+| **Python 再現** | **可** (候補) — `HMAC-SHA256(HMAC-SHA256(MGK, PSK), Nonce)` |
+| **追加調査** | IosMGKAuthData コンストラクタで直接照合して最終確認 |
 
-**静的解析の結果:**
-NFWebCrypto の全 6 HMAC call site を静的解析した結果、すべてランタイム導出の鍵を使用。
-バイナリに固定の HMAC 鍵は存在しない。
+**2026-04-09 発見: HKDF フックで導出式を特定**
 
-| Call site | 関数 | 鍵ソース |
-|-----------|------|----------|
-| `0x000101a0` | `nflxDhDerive` | `SHA384(DH private key)` (48B) |
-| `0x0000e640` | `hmacSign` | `AppleNativeKey::getBytes()` |
-| `0x00011990` | `HKDF-Extract` | caller 引数 |
-| `0x000119b8` | `HKDF-Expand` | 前段の PRK |
-| `0x0001aa4c` | HMAC wrapper (SHA256) | caller 引数 |
-| `0x0001aac8` | HMAC wrapper (SHA384) | caller 引数 |
+`AppleWebCrypto::HKDF` (NFWebCrypto @ offset `0x11900`) をフックし、以下の入力をキャプチャ:
 
-**Tweak キャプチャの結果:**
-IosMGKAuthData コンストラクタ (MslClient @ base+0xd45c) が発火しなかった。
-apphmac は appboot blob (8549B) の暗号化された本体部分に埋め込まれており、
-HMAC フックからは個別に特定できなかった。
+```
+HKDF(
+  key  = MGK (48B: enc_key_0 || sign_key_0)
+  ikm  = PSK (16B: 027617984f6227539a630b897c017d69)
+  info = Nonce (16B: 809f82a7addf548d3ea9dd067ff9bb91)
+)
+```
 
-**調査方針:**
-1. IosMGKAuthData コンストラクタのオフセットが正しいか再検証 (バイナリバージョン差異)
-2. `FpsMgkAppIdAuthData::getAuthData()` @ `0x000284bc` をフックして apphmac を直接キャプチャ
-3. apphmac が `HMAC(PSK, devicetoken)` かどうかをテスト (Frida で入力 216B の HMAC コールを監視)
+内部処理 (静的解析 + ランタイム確認):
+```
+prk = HMAC-SHA256(key=MGK, data=PSK)     // Extract
+okm = HMAC-SHA256(key=prk, data=Nonce)   // Expand (= apphmac 候補)
+```
+
+Python 計算結果:
+```
+prk = 6626cf896cb699d61fb42d242fe52f404d0867c379da777e3538bae7f35f3953
+okm = 4c142e4b82b3ad21e2dcdbcc007c27a4787adc0568959080b004b5daa5a7385a
+```
+
+**根拠:**
+1. Phase 3 KDF より先に呼ばれる独立した計算
+2. 入力は全て既知の定数/導出可能値 (MGK + PSK + Nonce)
+3. 出力は 32B (apphmac フィールドと同サイズ)
+4. HMAC/SHA384/EVP_Digest のどの出力にも一致しない独立経路
+5. 他に apphmac に相当する 32B 値を生成する経路が存在しない
+
+**注意:** IosMGKAuthData コンストラクタ (MslClient @ base+0xd45c) が発火しなかったため、
+entity_auth_data 内の apphmac フィールド値との直接照合はまだ完了していない。
+Phase 3 KDF の HMAC(PSK, MGK) = `19def2f9...` は apphmac ではなく KDF の step1 である。
+
+**確認手段:**
+1. appboot blob の暗号化本体をデコードして apphmac フィールドを抽出し照合
+2. IosMGKAuthData コンストラクタオフセットを再検証してフック発火を確認
 
 ### ~~appboot sign key (32B)~~ → **解決済み: Keychain キャッシュ**
 
@@ -289,13 +305,19 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 
 ### 要追加調査 (Python 実装のブロッカー)
 
-| 値 | 固定/可変 | 再利用 | 調査優先度 | 調査内容 |
-|----|----------|--------|-----------|---------|
-| **apphmac** (32B) | 毎回可変 | 不可 | ★★ 最高 | 導出ロジック (鍵 + 入力) の解明 |
-| **devicetoken** (216B) | 可変 | 不明 | ★ 高 | 有効期限。NRM API 仕様。再利用可能期間 |
-| ~~**appboot sign key**~~ | ~~解決済み~~ | — | — | Keychain キャッシュ。初回は sign_key_1 で代替 |
+| 値 | 固定/可変 | 再利用 | 状態 | 備考 |
+|----|----------|--------|------|------|
+| **apphmac** (32B) | ESN 依存・決定的 | 可 | **有力候補特定** | `HKDF(MGK, PSK, Nonce)` — IosMGKAuthData での最終確認が残る |
+| **devicetoken** (216B) | 可変 | 不明 | **キャプチャ済み** | 有効期限は未確認。当面はキャプチャ値を渡す |
+| ~~**appboot sign key**~~ | — | — | **解決済み** | Keychain キャッシュ。初回は sign_key_1 で署名 |
 
-> **結論**: apphmac の導出ロジックが残る唯一の最大ブロッカー。
-> appboot sign key は Keychain キャッシュと判明し、フレッシュ appboot では
-> sign_key_1 (Phase 3 KDF 出力) で署名すればよい。
-> devicetoken は有効期限が不明だが、キャプチャ値を渡すことで当面は動作する可能性がある。
+> **結論 (2026-04-09 更新):**
+> apphmac の導出式が `HKDF(key=MGK, ikm=PSK, info=Nonce)` として特定された。
+> これにより **全ての値が Python で再現可能** になった可能性がある:
+>
+> - apphmac: `HMAC-SHA256(HMAC-SHA256(MGK, PSK), Nonce)` — MGK は TFIT エミュレーション、PSK/Nonce はバイナリ定数
+> - appboot sign key: フレッシュ appboot では sign_key_1 (Phase 3 KDF) で署名
+> - devicetoken: キャプチャ値をパラメータとして渡す (NRM API 解明で自動取得も可能)
+>
+> IosMGKAuthData コンストラクタでの直接照合が最終確認として残るが、
+> 技術的には **appboot → MSL 認証の Python 実装に必要な全値の導出式が揃った**。
