@@ -65,6 +65,98 @@ class EncodeError(Exception):
     """CBOR MSL メッセージの構築に失敗した場合."""
 
 
+# ---------------------------------------------------------------------------
+# Netflix カスタム CBOR エンコーダー
+#
+# Netflix iOS の MSL 実装は標準 CBOR とは異なるエンコーディング規則を使用:
+#   1. 全ての整数値を 8 バイト形式 (major type 0, additional info 27 = 0x1b) でエンコード
+#   2. 全ての map の前に CBOR self-describe tag 55799 (0xd9d9f7) を付与
+# 標準 cbor2 ライブラリは最短形式を使うため、サーバーが "Error parsing MSL encodable" を返す。
+# ---------------------------------------------------------------------------
+
+
+import struct as _struct
+
+
+def _nf_encode_uint(value: int) -> bytes:
+    """整数値を Netflix 形式 (常に 8 バイト) でエンコードする."""
+    return b"\x1b" + _struct.pack(">Q", value)
+
+
+def _nf_encode_bytes(data: bytes) -> bytes:
+    """バイト列を CBOR bstr としてエンコードする."""
+    length = len(data)
+    if length < 24:
+        return bytes([0x40 | length]) + data
+    elif length < 256:
+        return b"\x58" + bytes([length]) + data
+    elif length < 65536:
+        return b"\x59" + _struct.pack(">H", length) + data
+    else:
+        return b"\x5a" + _struct.pack(">I", length) + data
+
+
+def _nf_encode_text(text: str) -> bytes:
+    """テキスト文字列を CBOR tstr としてエンコードする."""
+    data = text.encode("utf-8")
+    length = len(data)
+    if length < 24:
+        return bytes([0x60 | length]) + data
+    elif length < 256:
+        return b"\x78" + bytes([length]) + data
+    elif length < 65536:
+        return b"\x79" + _struct.pack(">H", length) + data
+    else:
+        return b"\x7a" + _struct.pack(">I", length) + data
+
+
+def nf_cbor_encode(obj: object) -> bytes:
+    """Netflix 互換の CBOR エンコードを行う.
+
+    - dict → tag(55799) + map, 整数キーは 8 バイト形式
+    - bytes → bstr
+    - str → tstr
+    - int → 8 バイト uint
+    - bool → CBOR true/false
+    - list → array
+    """
+    if isinstance(obj, dict):
+        items = sorted(obj.items(), key=lambda kv: (isinstance(kv[0], str), kv[0]))
+        header = b"\xd9\xd9\xf7"  # tag(55799)
+        n = len(items)
+        if n < 24:
+            header += bytes([0xA0 | n])
+        else:
+            header += b"\xb8" + bytes([n])
+        body = b""
+        for k, v in items:
+            if isinstance(k, int):
+                body += _nf_encode_uint(k)
+            elif isinstance(k, str):
+                body += _nf_encode_text(k)
+            else:
+                raise EncodeError(f"Unsupported key type: {type(k)}")
+            body += nf_cbor_encode(v)
+        return header + body
+    elif isinstance(obj, bytes):
+        return _nf_encode_bytes(obj)
+    elif isinstance(obj, str):
+        return _nf_encode_text(obj)
+    elif isinstance(obj, int):
+        return _nf_encode_uint(obj)
+    elif isinstance(obj, bool):
+        return b"\xf5" if obj else b"\xf4"
+    elif isinstance(obj, list):
+        n = len(obj)
+        if n < 24:
+            header = bytes([0x80 | n])
+        else:
+            header = b"\x98" + bytes([n])
+        return header + b"".join(nf_cbor_encode(item) for item in obj)
+    else:
+        raise EncodeError(f"Unsupported type: {type(obj)}")
+
+
 class CborMslEncoder:
     """iOS CBOR MSL リクエストメッセージを構築するエンコーダー."""
 

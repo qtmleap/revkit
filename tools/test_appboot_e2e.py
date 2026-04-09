@@ -70,6 +70,7 @@ from netflix_msl.constants import (  # noqa: E402
     IOS_KDF_PSK,
     IOS_KEY336_DEVICE_HEADER,
 )
+from netflix_msl.cbor_encoder import nf_cbor_encode  # noqa: E402
 from netflix_msl.crypto import NetflixCrypto  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -238,7 +239,7 @@ def build_key_request_data(
         KEYEX_IDENTITY: esn,  # identity = 完全 ESN (サフィックスなし)
         KEYEX_NONCE: k9_xor_nonce,
     }
-    return cbor2.dumps(key_request), k9_xor_nonce, nonce_7b
+    return nf_cbor_encode(key_request), k9_xor_nonce, nonce_7b
 
 
 # ---------------------------------------------------------------------------
@@ -264,9 +265,12 @@ def build_appboot_message(
     """
     signature = hmac_mod.new(sign_key_0, key_request_bytes, hashlib.sha256).digest()
 
-    return cbor2.dumps(
+    # entity_auth_data を Netflix 形式 CBOR でエンコード
+    ead_bytes = nf_cbor_encode(entity_auth_data)
+
+    return nf_cbor_encode(
         {
-            KEY_ENTITY_AUTH: cbor2.dumps(entity_auth_data),
+            KEY_ENTITY_AUTH: ead_bytes,
             KEY_KEY_EXCHANGE: key_request_bytes,
             KEY_MESSAGE_SIG: signature,
         }
