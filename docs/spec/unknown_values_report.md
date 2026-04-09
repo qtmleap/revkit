@@ -313,8 +313,8 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 
 | 値 | 固定/可変 | 再利用 | 状態 | 備考 |
 |----|----------|--------|------|------|
-| **apphmac** (32B) | セッション可変 | セッション内で可 | **解決: deviceIdToken** | CDM 層から取得。Tweak でキャプチャ |
-| **devicetoken** (216B) | 可変 | 不明 | **キャプチャ済み** | NRM サービスから取得。Tweak でキャプチャ |
+| **apphmac** (32B) | DRM 層で永続 | **長期再利用可** | **解決: deviceIdToken** | CDM/Secure Enclave 由来。Keychain 削除後も不変 |
+| **devicetoken** (216B) | DRM 層で永続 | **長期再利用可** | **解決: DRM トークン** | CDM/FairPlay 由来。Keychain 削除後も不変 |
 | ~~**appboot sign key**~~ | — | — | **解決** | Keychain キャッシュ。初回は sign_key_1 で署名 |
 
 > **結論 (2026-04-09 最終):**

@@ -512,29 +512,46 @@ key 34 (entity_auth_data): {
 | 項目 | 値 |
 |------|-----|
 | サイズ | 216B (protobuf) |
-| 生成元 | Nbp.framework 内部 SDK コール (`getNRMCookieWithESN:`) |
-| 取得方式 | **HTTP ではない** — Netflix SDK (NRDP/CDM 層) 内部 API |
+| 生成元 | DRM/CDM 層 (Secure Enclave または FairPlay プロビジョニング) |
+| 取得方式 | **HTTP ではない** — デバイスの DRM 層に永続化された値 |
 | protobuf 構造 | field 1: varint (ID), field 2: 188B opaque payload |
 | 可変性 | セッション可変 |
-| Python 再現 | **不可** — SDK 内部 API で発行。HTTP エンドポイントなし |
+| Python 再現 | **不可** — DRM 層に焼き付いた値。外部から生成・取得する手段なし |
 | 取得方法 | Tweak でキャプチャ (`FpsMgkAppIdAuthData` コンストラクタ x5、または appboot blob 末尾) |
 
-> プロキシ (mitmproxy) のキャプチャログに NRM 専用 HTTP エンドポイントは存在しなかった。
-> `getNRMCookieWithESN:` は HTTP 経由ではなく、Nbp.framework 内部で
-> NRDP/CDM ネイティブ API を呼び出してトークンを取得している。
+> **永続性の検証結果 (2026-04-09):**
+> iOS Keychain の Netflix 全エントリ (18件) を削除 + アプリデータ全削除を行っても、
+> 同一の devicetoken (216B) と deviceIdToken が再び使用された。
+> `getDeviceTokensWithCallback:` コールバックも `getNRMCookieWithESN:` も発火しなかった。
+> これらのトークンは **Keychain よりも深い層** (Secure Enclave、CDM 内部ストレージ、
+> または FairPlay デバイスプロビジョニング) に永続化されていると結論。
+> HTTP エンドポイントも存在しない (mitmproxy ログで確認済み)。
 
 ### 用途
 
 両トークンは **「このデバイスは正規の Netflix 対応デバイスである」ことをサーバーに証明する認証情報**。
 `entity_auth_data` (MGK_APPID スキーム) として ESN + appid と共にセットで appboot リクエストに含まれる。
 
+### Phase 2 KDF 48B key の確認
+
+```
+48B_key = SHA384(session_bind[:16])
+```
+
+Keychain クリア後のフレッシュ DH セッションで `SHA384(session_bind[:16])` と
+キャプチャされた 48B HMAC key (`268ab8d5...`) が完全一致することを確認。
+
 ### Python 実装での扱い
 
 ```python
 # ios_client.py コンストラクタ
 client = iOSMslClient(
-    esn="NFAPPL-02-IPHONE9=1-...",        # Tweak でキャプチャ
+    esn="NFAPPL-02-IPHONE9=1-...",        # Tweak でキャプチャ (1回、永続)
     device_id_token=b"...(32B)...",         # Tweak でキャプチャ (CBOR では "apphmac")
     device_token=b"...(216B protobuf)...",  # Tweak でキャプチャ (CBOR では "devicetoken")
 )
 ```
+
+> **注意**: 3 つのキャプチャ値はいずれも DRM/CDM 層に永続化されており、
+> Keychain 削除やアプリ再インストールでは変化しない。
+> 一度キャプチャすれば長期間再利用できる可能性が高い。
