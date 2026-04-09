@@ -68,7 +68,6 @@ from netflix_msl.constants import (  # noqa: E402
     IOS_APPKEYVERSION,
     IOS_KDF_NONCE,
     IOS_KDF_PSK,
-    IOS_KEY336_DEVICE_HEADER,
 )
 from netflix_msl.cbor_encoder import nf_cbor_encode  # noqa: E402
 from netflix_msl.crypto import NetflixCrypto  # noqa: E402
@@ -92,11 +91,6 @@ KEYEX_NONCE = 9
 KEY_ENTITY_AUTH = 34
 KEY_KEY_EXCHANGE = 33
 KEY_MESSAGE_SIG = 16
-
-# key 33.6 XOR nonce / nonce 変形マスク (実測値)
-_N2_MASK = bytes([0xF4, 0x1B, 0x00, 0x00, 0x00, 0x00, 0x00])
-_N3_MASK = bytes([0xF4, 0x1B, 0x00, 0x18, 0x1B, 0x00, 0x00])
-_TAIL_MASK = bytes([0xF3, 0x1C, 0x07, 0x1F])
 
 
 # ---------------------------------------------------------------------------
@@ -177,69 +171,39 @@ def build_entity_auth_data(
 # ---------------------------------------------------------------------------
 
 
-def build_key336_scheme_data(
-    session_region: bytes,
-    nonce_7b: bytes,
-    s1: bytes,
-    s2: bytes,
-    s3: bytes,
-    k9_xor_nonce: bytes,
-) -> bytes:
-    """key 33.6 scheme_data 352B を XOR 暗号化して返す.
-
-    NetflixCrypto.build_key336_scheme_data() と同じロジック。
-    """
-    n = nonce_7b
-    n2 = bytes(a ^ b for a, b in zip(n, _N2_MASK))
-    n3 = bytes(a ^ b for a, b in zip(n, _N3_MASK))
-    tail = bytes(a ^ b for a, b in zip(n[:4], _TAIL_MASK))
-
-    plaintext = (
-        IOS_KEY336_DEVICE_HEADER  # [0:128]
-        + session_region  # [128:300]
-        + n  # [300:307]
-        + s1  # [307:316]
-        + n2  # [316:323]
-        + s2  # [323:332]
-        + n3  # [332:339]
-        + s3  # [339:348]
-        + tail  # [348:352]
-    )
-    assert len(plaintext) == 352
-    return bytes(plaintext[i] ^ k9_xor_nonce[i % 16] for i in range(352))
-
-
 def build_key_request_data(
-    session_region: bytes,
-    s1: bytes,
-    s2: bytes,
-    s3: bytes,
+    dh_pub_key: bytes,
+    enc_key_0: bytes,
+    sign_key_0: bytes,
     esn: str,
-) -> tuple[bytes, bytes, bytes]:
+) -> tuple[bytes, bytes]:
     """key_request_data CBOR バイト列を構築する.
 
-    Returns:
-        (key_request_bytes, k9_xor_nonce, nonce_7b)
-    """
-    k9_xor_nonce = os.urandom(16)
-    nonce_7b = os.urandom(7)
+    NetflixCrypto.build_scheme_data_352() を呼び出して 352B scheme_data を構築し、
+    CBOR エンコードされた key_request_data バイト列を返す。
 
-    scheme_data = build_key336_scheme_data(
-        session_region=session_region,
-        nonce_7b=nonce_7b,
-        s1=s1,
-        s2=s2,
-        s3=s3,
-        k9_xor_nonce=k9_xor_nonce,
+    Args:
+        dh_pub_key:  DH 公開鍵 (128 bytes)
+        enc_key_0:   Phase 0 MGK 暗号化鍵 (16 bytes)
+        sign_key_0:  Phase 0 MGK 署名鍵 (32 bytes)
+        esn:         完全 ESN 文字列
+
+    Returns:
+        (key_request_bytes, k9_xor_nonce)
+    """
+    scheme_data, k9_xor_nonce = NetflixCrypto.build_scheme_data_352(
+        dh_pub_key=dh_pub_key,
+        enc_key_0=enc_key_0,
+        sign_key_0=sign_key_0,
     )
 
     key_request = {
         KEYEX_SCHEME: scheme_data,
         KEYEX_KEYDATA: b"",  # master_token = empty (新規セッション)
-        KEYEX_IDENTITY: esn,  # identity = 完全 ESN (サフィックスなし)
+        KEYEX_IDENTITY: esn,  # identity = 完全 ESN
         KEYEX_NONCE: k9_xor_nonce,
     }
-    return nf_cbor_encode(key_request), k9_xor_nonce, nonce_7b
+    return nf_cbor_encode(key_request), k9_xor_nonce
 
 
 # ---------------------------------------------------------------------------
@@ -464,44 +428,13 @@ def run_e2e_test(
     print(f"  DH pub_key: {dh_pub_key[:16].hex()}... ({len(dh_pub_key)}B)")
 
     # ------------------------------------------------------------------
-    # session_region を TFIT-WB-AES で構築 (NFWebCrypto.framework が必要)
-    # ------------------------------------------------------------------
-    # TFIT エミュレーションで DH 公開鍵を WB-AES-128-ECB 暗号化して session_region を構築。
-    # NFWebCrypto バイナリが存在しない場合は 172B ゼロ埋めにフォールバック。
-    # NOTE: session_region[135:172] (37B MGK テール) は CBOR エンコーディングが未解明のため
-    #       現状はゼロ埋め。サーバーが鍵交換を拒否する可能性がある。
-    print()
-    print("[Phase 1a'] session_region を TFIT エミュレーションで構築中...")
-    session_region = NetflixCrypto.build_session_region(
-        dh_pub_key=dh_pub_key,
-        enc_key_0=enc_key_0,
-        sign_key_0=sign_key_0,
-    )
-    is_zero_filled = session_region == bytes(172)
-    if is_zero_filled:
-        print(
-            "  session_region: ゼロ埋め (TFIT バイナリ未検出またはエミュレーション失敗)"
-        )
-    else:
-        print(
-            f"  session_region: TFIT 暗号化済み {session_region[:7].hex()}..."
-            f" ({len(session_region)}B)"
-        )
-        print(f"    prefix (7B):    {session_region[:7].hex()}")
-        print(f"    TFIT[0] (16B):  {session_region[7:23].hex()}")
-        print(f"    TFIT[-1] (16B): {session_region[119:135].hex()}")
-
-    # セパレータは実測キャプチャから取得した既知の値を使用
-    # (セッション固有値のため、実際の接続では Frida キャプチャが必要)
-    s1 = b"\x00" * 9
-    s2 = b"\x00" * 9
-    s3 = b"\x00" * 9
-
-    # ------------------------------------------------------------------
     # Phase 1b: entity_auth_data と key_request_data を構築
     # ------------------------------------------------------------------
+    # build_scheme_data_352() が内部で TFIT エミュレーションを実行し、
+    # 352B の完全な scheme_data を構築する。
     print()
     print("[Phase 1b] CBOR メッセージを構築中...")
+    print("  build_scheme_data_352() で 352B scheme_data を構築中...")
 
     entity_auth_data = build_entity_auth_data(
         esn=esn,
@@ -509,11 +442,10 @@ def run_e2e_test(
         devicetoken=devicetoken,
     )
 
-    key_request_bytes, k9_xor_nonce, nonce_7b = build_key_request_data(
-        session_region=session_region,
-        s1=s1,
-        s2=s2,
-        s3=s3,
+    key_request_bytes, k9_xor_nonce = build_key_request_data(
+        dh_pub_key=dh_pub_key,
+        enc_key_0=enc_key_0,
+        sign_key_0=sign_key_0,
         esn=esn,
     )
 
@@ -525,7 +457,6 @@ def run_e2e_test(
 
     print(f"  CBOR message size: {len(cbor_message)} bytes")
     print(f"  k9_xor_nonce: {k9_xor_nonce.hex()}")
-    print(f"  nonce_7b:     {nonce_7b.hex()}")
 
     # 構築したメッセージの構造を検証
     decoded_check = cbor2.loads(cbor_message)
@@ -650,7 +581,9 @@ def run_e2e_test(
         )
         print()
         print("原因: entity_auth_data または key_request_data が不正です。")
-        print("      正しい session_region (TFIT-WB-AES 暗号化 DH 公開鍵) が必要です。")
+        print(
+            "      build_scheme_data_352() のテール構造または TFIT 暗号化が不正の可能性。"
+        )
         _print_request_summary(cbor_message, esn, apphmac, devicetoken)
         return
 
@@ -694,10 +627,11 @@ def run_e2e_test(
                 f"  uv run tools/test_appboot_e2e.py --device-id-token '{new_device_id_token}'"
             )
         print()
-        print("NOTE: session_region が正しい TFIT 暗号化 DH 公開鍵でないため、")
-        print("      サーバー側の DH 計算は失敗している可能性があります。")
         print(
-            "      Phase 2 (DH 鍵合意) を完了するには emulate_tfit.py の session_region 導出が必要。"
+            "NOTE: build_scheme_data_352() で TFIT 暗号化 DH 公開鍵を含む 352B scheme_data を構築済み。"
+        )
+        print(
+            "      NFWebCrypto バイナリが存在する場合は TFIT エミュレーション結果を使用。"
         )
     else:
         print("STATUS: key_response_data が不完全 — 鍵交換未完了")

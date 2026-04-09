@@ -124,6 +124,13 @@ IOS_SHARKBOOT_KEY_DER = bytes.fromhex(
 # CBOR データストリームの継続部分 — ヘッダーと TFIT データの間のフレーム。
 IOS_KEY336_SESSION_REGION_PREFIX: bytes = bytes.fromhex("6260c8a117cf31")
 
+# scheme_data 固定 CBOR ヘッダー (135B)
+# IOS_KEY336_DEVICE_HEADER (128B) + 7B CBOR 継続プレフィックス
+# 全 352B appboot サンプルで pt[0:135] が共通の定数 (標準 iPhone)。
+# IOS_SCHEME_DATA_HEADER_135B は build_scheme_data_352() で使用する。
+# この定数は IOS_KEY336_DEVICE_HEADER と IOS_KEY336_SESSION_REGION_PREFIX の連結だが、
+# build_scheme_data_352() 内で動的に構成するため定数定義は参照用。
+
 # key 33.6 scheme_data の固定デバイスヘッダー (128B)
 # 180 個の 352B appboot サンプルのうち 165 個 (標準 iPhone) で共通の定数。
 # plaintext[0:128] の値 (XOR 復号後)。
@@ -141,6 +148,14 @@ IOS_KEY336_DEVICE_HEADER: bytes = bytes.fromhex(
     "4f4e3181a21b27a4d28b0e4e7960c894"
     "4f4e3181a21b2797b1c649056260c894"
     "4f4e3181987a168cb1c64905"
+)
+
+# scheme_data 固定 CBOR ヘッダー (135B)
+# IOS_KEY336_DEVICE_HEADER (128B) + IOS_KEY336_SESSION_REGION_PREFIX (7B) の連結。
+# 全 352B appboot サンプルで pt[0:135] が共通の定数 (標準 iPhone)。
+# build_scheme_data_352() の組み立てで使用する。
+IOS_SCHEME_DATA_HEADER_135B: bytes = IOS_KEY336_DEVICE_HEADER + bytes.fromhex(
+    "6260c8a117cf31"
 )
 
 # ============================================================================

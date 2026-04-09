@@ -26,6 +26,7 @@ from netflix_msl.constants import (
     IOS_KDF_PSK,
     IOS_KEY336_DEVICE_HEADER,
     IOS_KEY336_SESSION_REGION_PREFIX,
+    IOS_SCHEME_DATA_HEADER_135B,
     RSA_KEYPAIR_ID,
 )
 
@@ -691,6 +692,132 @@ class NetflixCrypto:
         assert len(plaintext) == 352, f"plaintext length {len(plaintext)} != 352"
 
         # --- XOR 暗号化 (key 33.9 で平文を XOR) ---
+        scheme_data_enc = bytes(plaintext[i] ^ k9_xor_nonce[i % 16] for i in range(352))
+        return scheme_data_enc, k9_xor_nonce
+
+    # ---- key 33.6 scheme_data 完全構築 (352B, 正確な構造) ----
+
+    @staticmethod
+    def build_scheme_data_352(
+        dh_pub_key: bytes,
+        enc_key_0: bytes,
+        sign_key_0: bytes,
+        message_id: int | None = None,
+        timestamp: int | None = None,
+    ) -> tuple[bytes, bytes]:
+        """iOS appboot の key 33.6 scheme_data 352B を完全に構築する.
+
+        実測で確認した 352B plaintext の正確な構造:
+
+          bytes [0:135]   : 固定 CBOR ヘッダー (IOS_SCHEME_DATA_HEADER_135B)
+                            = IOS_KEY336_DEVICE_HEADER (128B)
+                            + IOS_KEY336_SESSION_REGION_PREFIX (7B)
+          bytes [135:263] : 128B TFIT-WB-AES-128-ECB(DH_pub_key)
+                            = 8 ブロック × 16B の TFIT 暗号化出力
+          bytes [263:352] : 89B CFB-chain 暗号化済み CBOR テール
+                            (復号後の内容は以下の 82B + 7B PKCS#7 パディング)
+
+        テール平文 (82B + 7B パディング = 89B):
+          key 30: tstr(16) "AUTHENTICATED_DH"
+          key 22: uint64   message_id  (per-request ランダム)
+          key 40: bool     false
+          key 21: bool     true
+          key 24: uint64   timestamp   (UNIX 秒)
+          +7B PKCS#7 パディング (0x07 × 7)
+
+        CFB-chain 暗号化:
+          IV = tfit_output[-16:]  (TFIT 出力の最終ブロック)
+          for each 16B block i:
+            enc[i] = plain[i] XOR prev
+            prev   = enc[i]   (ciphertext フィードバック)
+          最終ブロック (9B) は prev を最初の 9B 分だけ XOR して生成
+
+        最終 XOR:
+          scheme_data[i] = plaintext[i] XOR k9_xor_nonce[i % 16]
+
+        Args:
+            dh_pub_key:  DH 公開鍵 (128 bytes, big-endian)
+            enc_key_0:   Phase 0 MGK 暗号化鍵 (16 bytes)
+            sign_key_0:  Phase 0 MGK 署名鍵 (32 bytes)
+            message_id:  per-request メッセージ ID (None の場合は random.randint(0, 2**52))
+            timestamp:   UNIX 秒 (None の場合は int(time.time()))
+
+        Returns:
+            (scheme_data_enc, k9_xor_nonce)
+              scheme_data_enc : 352B XOR 暗号化済み scheme_data (key 33.6 の値)
+              k9_xor_nonce    : 16B per-request XOR nonce (key 33.9 として使用)
+
+        Raises:
+            ValueError: dh_pub_key が 128B でない場合
+        """
+        import random
+        import struct
+        import time as _time
+
+        if len(dh_pub_key) != 128:
+            raise ValueError(f"dh_pub_key must be 128 bytes, got {len(dh_pub_key)}")
+        if len(enc_key_0) != 16:
+            raise ValueError(f"enc_key_0 must be 16 bytes, got {len(enc_key_0)}")
+        if len(sign_key_0) != 32:
+            raise ValueError(f"sign_key_0 must be 32 bytes, got {len(sign_key_0)}")
+
+        # --- デフォルト値の設定 ---
+        if message_id is None:
+            message_id = random.randint(0, 2**52)
+        if timestamp is None:
+            timestamp = int(_time.time())
+
+        # --- TFIT 出力を取得 (build_session_region から [7:135] を抽出) ---
+        # build_session_region() は 7B prefix + 128B TFIT + 37B zeros = 172B を返す。
+        # TFIT 出力は [7:135] の 128B。
+        session_region = NetflixCrypto.build_session_region(
+            dh_pub_key=dh_pub_key,
+            enc_key_0=enc_key_0,
+            sign_key_0=sign_key_0,
+        )
+        tfit_output = session_region[7:135]  # 128B: TFIT-WB-AES-128-ECB(DH_pub_key)
+
+        # --- テール平文 89B を構築 ---
+        # キー順: 30, 22, 40, 21, 24 (実測キャプチャで確認済み)
+        tail_plain = b""
+        tail_plain += b"\x1b" + struct.pack(">Q", 30)  # key 30
+        tail_plain += b"\x70" + b"AUTHENTICATED_DH"  # tstr(16)
+        tail_plain += b"\x1b" + struct.pack(">Q", 22)  # key 22
+        tail_plain += b"\x1b" + struct.pack(">Q", message_id)  # uint64
+        tail_plain += b"\x1b" + struct.pack(">Q", 40)  # key 40
+        tail_plain += b"\xf4"  # false
+        tail_plain += b"\x1b" + struct.pack(">Q", 21)  # key 21
+        tail_plain += b"\xf5"  # true
+        tail_plain += b"\x1b" + struct.pack(">Q", 24)  # key 24
+        tail_plain += b"\x1b" + struct.pack(">Q", timestamp)  # uint64
+        # PKCS#7 パディング (89 - 82 = 7 バイト の 0x07)
+        pad_len = 89 - len(tail_plain)
+        tail_plain += bytes([pad_len] * pad_len)
+        assert len(tail_plain) == 89, f"tail_plain length {len(tail_plain)} != 89"
+
+        # --- CFB-chain 暗号化 ---
+        # prev = TFIT 出力の最終ブロック (bytes [263-16:263] = tfit_output[-16:])
+        prev = tfit_output[-16:]
+        enc_tail = bytearray()
+        for i in range(0, len(tail_plain), 16):
+            block = tail_plain[i : min(i + 16, len(tail_plain))]
+            encrypted = bytes(block[j] ^ prev[j % 16] for j in range(len(block)))
+            enc_tail.extend(encrypted)
+            if len(block) == 16:
+                prev = encrypted  # CFB: prev を暗号文ブロックで更新
+
+        assert len(enc_tail) == 89, f"enc_tail length {len(enc_tail)} != 89"
+
+        # --- 平文 352B を組み立て ---
+        plaintext = (
+            IOS_SCHEME_DATA_HEADER_135B  # [0:135]   固定 CBOR ヘッダー
+            + tfit_output  # [135:263] TFIT(DH_pub_key)
+            + bytes(enc_tail)  # [263:352] CFB 暗号化済みテール
+        )
+        assert len(plaintext) == 352, f"plaintext length {len(plaintext)} != 352"
+
+        # --- XOR 暗号化 (key 33.9 で平文を XOR) ---
+        k9_xor_nonce = os.urandom(16)
         scheme_data_enc = bytes(plaintext[i] ^ k9_xor_nonce[i % 16] for i in range(352))
         return scheme_data_enc, k9_xor_nonce
 
