@@ -87,6 +87,110 @@ static volatile int g_inHook = 0;
 static int g_hmacDumpCount = 0;
 
 // ---------------------------------------------------------------------------
+// HMAC_CTX tracking table
+// Correlates ctx pointer -> accumulated state across Init/Update/Final calls.
+// ---------------------------------------------------------------------------
+
+#define HMAC_CTX_TABLE_SIZE 32
+
+typedef struct {
+    void    *ctx;           // non-NULL means slot is in use
+    uint8_t  key[128];
+    int      key_len;
+    int      md_nid;        // NID of the EVP_MD (or -1 if unknown)
+    uint8_t  data_head[64]; // first 64B of input data
+    size_t   data_head_len;
+    size_t   data_total;
+    int      seq;           // call sequence number
+} HmacCtxEntry;
+
+static HmacCtxEntry g_hmacCtxTable[HMAC_CTX_TABLE_SIZE];
+static int g_hmacCtxSeq = 0;
+
+static HmacCtxEntry *hmacCtxFind(void *ctx) {
+    for (int i = 0; i < HMAC_CTX_TABLE_SIZE; i++) {
+        if (g_hmacCtxTable[i].ctx == ctx) return &g_hmacCtxTable[i];
+    }
+    return NULL;
+}
+
+static HmacCtxEntry *hmacCtxAlloc(void *ctx) {
+    // Reuse existing slot
+    HmacCtxEntry *e = hmacCtxFind(ctx);
+    if (e) return e;
+    // Find free slot
+    for (int i = 0; i < HMAC_CTX_TABLE_SIZE; i++) {
+        if (g_hmacCtxTable[i].ctx == NULL) {
+            memset(&g_hmacCtxTable[i], 0, sizeof(HmacCtxEntry));
+            g_hmacCtxTable[i].ctx   = ctx;
+            g_hmacCtxTable[i].md_nid = -1;
+            g_hmacCtxTable[i].seq   = __sync_fetch_and_add(&g_hmacCtxSeq, 1);
+            return &g_hmacCtxTable[i];
+        }
+    }
+    // Table full — evict slot 0
+    memset(&g_hmacCtxTable[0], 0, sizeof(HmacCtxEntry));
+    g_hmacCtxTable[0].ctx    = ctx;
+    g_hmacCtxTable[0].md_nid = -1;
+    g_hmacCtxTable[0].seq    = __sync_fetch_and_add(&g_hmacCtxSeq, 1);
+    return &g_hmacCtxTable[0];
+}
+
+static void hmacCtxFree(void *ctx) {
+    HmacCtxEntry *e = hmacCtxFind(ctx);
+    if (e) memset(e, 0, sizeof(HmacCtxEntry));
+}
+
+// ---------------------------------------------------------------------------
+// EVP_DigestCtx tracking table (for SHA384 incremental)
+// ---------------------------------------------------------------------------
+
+#define EVP_CTX_TABLE_SIZE 16
+
+typedef struct {
+    void    *ctx;
+    int      md_nid;
+    uint8_t  data_head[64];
+    size_t   data_head_len;
+    size_t   data_total;
+    int      seq;
+} EvpCtxEntry;
+
+static EvpCtxEntry g_evpCtxTable[EVP_CTX_TABLE_SIZE];
+static int g_evpCtxSeq = 0;
+
+static EvpCtxEntry *evpCtxFind(void *ctx) {
+    for (int i = 0; i < EVP_CTX_TABLE_SIZE; i++) {
+        if (g_evpCtxTable[i].ctx == ctx) return &g_evpCtxTable[i];
+    }
+    return NULL;
+}
+
+static EvpCtxEntry *evpCtxAlloc(void *ctx) {
+    EvpCtxEntry *e = evpCtxFind(ctx);
+    if (e) return e;
+    for (int i = 0; i < EVP_CTX_TABLE_SIZE; i++) {
+        if (g_evpCtxTable[i].ctx == NULL) {
+            memset(&g_evpCtxTable[i], 0, sizeof(EvpCtxEntry));
+            g_evpCtxTable[i].ctx  = ctx;
+            g_evpCtxTable[i].md_nid = -1;
+            g_evpCtxTable[i].seq  = __sync_fetch_and_add(&g_evpCtxSeq, 1);
+            return &g_evpCtxTable[i];
+        }
+    }
+    memset(&g_evpCtxTable[0], 0, sizeof(EvpCtxEntry));
+    g_evpCtxTable[0].ctx   = ctx;
+    g_evpCtxTable[0].md_nid = -1;
+    g_evpCtxTable[0].seq   = __sync_fetch_and_add(&g_evpCtxSeq, 1);
+    return &g_evpCtxTable[0];
+}
+
+static void evpCtxFree(void *ctx) {
+    EvpCtxEntry *e = evpCtxFind(ctx);
+    if (e) memset(e, 0, sizeof(EvpCtxEntry));
+}
+
+// ---------------------------------------------------------------------------
 // Opaque types (OpenSSL)
 // ---------------------------------------------------------------------------
 
@@ -179,7 +283,371 @@ static unsigned char *hook_HMAC(const EVP_MD *evp_md,
 }
 
 // ---------------------------------------------------------------------------
-// HOOK 2: NSData dataWithContentsOfFile: — catch large file reads (4-10 KB)
+// HOOK 2: HMAC_CTX_new — log context creation
+// ---------------------------------------------------------------------------
+
+static void *(*orig_HMAC_CTX_new)(void);
+
+static void *hook_HMAC_CTX_new(void) {
+    void *ctx = orig_HMAC_CTX_new ? orig_HMAC_CTX_new() : NULL;
+    if (ctx && !g_inHook) {
+        g_inHook = 1;
+        hmacCtxAlloc(ctx);
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:@"[NFXEntityAuth][HMAC_CTX_new] ctx=%p", ctx]);
+        g_inHook = 0;
+    }
+    return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 3: HMAC_Init_ex(ctx, key, key_len, evp_md, engine)
+// ---------------------------------------------------------------------------
+
+static int (*orig_HMAC_Init_ex)(void *ctx, const void *key, int key_len,
+                                 const EVP_MD *evp_md, void *engine);
+
+// Forward-declare so we can get NID inside the hook
+typedef int (*EVP_MD_type_fn)(const EVP_MD *);
+static EVP_MD_type_fn g_EVP_MD_type = NULL;
+
+static int hook_HMAC_Init_ex(void *ctx, const void *key, int key_len,
+                               const EVP_MD *evp_md, void *engine) {
+    int ret = orig_HMAC_Init_ex ? orig_HMAC_Init_ex(ctx, key, key_len, evp_md, engine) : 1;
+
+    if (ctx && !g_inHook) {
+        g_inHook = 1;
+
+        HmacCtxEntry *e = hmacCtxAlloc(ctx);
+        if (e && key && key_len > 0 && key_len <= (int)sizeof(e->key)) {
+            memcpy(e->key, key, (size_t)key_len);
+            e->key_len = key_len;
+        }
+        if (e && evp_md && g_EVP_MD_type) {
+            e->md_nid = g_EVP_MD_type(evp_md);
+        }
+        // Reset data tracking on re-init
+        if (e) {
+            e->data_head_len = 0;
+            e->data_total    = 0;
+        }
+
+        int nid = e ? e->md_nid : -1;
+        int seq = e ? e->seq : -1;
+        NSString *keyHex = (key && key_len > 0)
+            ? hexEncodeShort((const uint8_t *)key, (size_t)key_len) : @"(null)";
+
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:
+                  @"[NFXEntityAuth][HMAC_Init_ex] seq=%d ctx=%p nid=%d key(%dB)=%@",
+                  seq, ctx, nid, key_len, keyHex]);
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 4: HMAC_Update(ctx, data, len)
+// ---------------------------------------------------------------------------
+
+static int (*orig_HMAC_Update)(void *ctx, const unsigned char *data, size_t len);
+
+static int hook_HMAC_Update(void *ctx, const unsigned char *data, size_t len) {
+    int ret = orig_HMAC_Update ? orig_HMAC_Update(ctx, data, len) : 1;
+
+    if (ctx && !g_inHook) {
+        g_inHook = 1;
+
+        HmacCtxEntry *e = hmacCtxFind(ctx);
+        if (e) {
+            // Accumulate first 64B of data
+            if (data && len > 0 && e->data_head_len < sizeof(e->data_head)) {
+                size_t copy = sizeof(e->data_head) - e->data_head_len;
+                if (copy > len) copy = len;
+                memcpy(e->data_head + e->data_head_len, data, copy);
+                e->data_head_len += copy;
+            }
+            e->data_total += len;
+        }
+
+        int seq = e ? e->seq : -1;
+        NSString *dataHex = (data && len > 0)
+            ? hexEncodeShort((const uint8_t *)data, len) : @"(null)";
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:
+                  @"[NFXEntityAuth][HMAC_Update] seq=%d ctx=%p data(%zuB)=%@",
+                  seq, ctx, len, dataHex]);
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 5: HMAC_Final(ctx, md, md_len)
+// ---------------------------------------------------------------------------
+
+static int (*orig_HMAC_Final)(void *ctx, unsigned char *md, unsigned int *md_len);
+
+static int hook_HMAC_Final(void *ctx, unsigned char *md, unsigned int *md_len) {
+    int ret = orig_HMAC_Final ? orig_HMAC_Final(ctx, md, md_len) : 1;
+
+    if (ctx && !g_inHook) {
+        g_inHook = 1;
+
+        HmacCtxEntry *e = hmacCtxFind(ctx);
+        unsigned int outLen = (md_len && *md_len > 0) ? *md_len : 0;
+        // Derive expected output size from the tracked NID if md_len was not set
+        if (outLen == 0 && md) {
+            int nidGuess = e ? e->md_nid : -1;
+            if (nidGuess == 673)      outLen = 48; // SHA384
+            else if (nidGuess == 674) outLen = 64; // SHA512
+            else                      outLen = 32; // SHA256 or unknown
+        }
+
+        int seq    = e ? e->seq : -1;
+        int nid    = e ? e->md_nid : -1;
+        int keyLen = e ? e->key_len : 0;
+        NSString *keyHex = (e && e->key_len > 0)
+            ? hexEncode(e->key, (size_t)e->key_len) : @"(none)";
+        NSString *dataHeadHex = (e && e->data_head_len > 0)
+            ? hexEncode(e->data_head, e->data_head_len) : @"(none)";
+        NSString *outHex = (md && outLen > 0)
+            ? hexEncode(md, outLen) : @"(null)";
+
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:
+                  @"[NFXEntityAuth][HMAC_Final] seq=%d ctx=%p nid=%d key(%dB)=%@ "
+                  @"data_total=%zuB data_head=%@ output(%uB)=%@",
+                  seq, ctx, nid, keyLen, keyHex,
+                  e ? e->data_total : (size_t)0, dataHeadHex,
+                  outLen, outHex]);
+
+        // If output is 48B (SHA384), log specially — first 32B might be the sign key
+        if (outLen >= 48 && md) {
+            NSString *first32 = hexEncode(md, 32);
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][HMAC_Final] SHA384 first32=%@", first32]);
+        }
+
+        hmacCtxFree(ctx);
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 6: SHA384 one-shot
+// unsigned char *SHA384(const unsigned char *d, size_t n, unsigned char *md)
+// ---------------------------------------------------------------------------
+
+static unsigned char *(*orig_SHA384)(const unsigned char *d, size_t n, unsigned char *md);
+
+static unsigned char *hook_SHA384(const unsigned char *d, size_t n, unsigned char *md) {
+    unsigned char *ret = orig_SHA384 ? orig_SHA384(d, n, md) : NULL;
+
+    if (!g_inHook && ret) {
+        g_inHook = 1;
+        NSString *dataHex = hexEncodeShort((const uint8_t *)d, n);
+        NSString *outHex  = hexEncode(ret, 48);
+        NSString *first32 = hexEncode(ret, 32);
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:
+                  @"[NFXEntityAuth][SHA384] data(%zuB)=%@ digest(48B)=%@ first32=%@",
+                  n, dataHex, outHex, first32]);
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 7: EVP_DigestInit_ex(ctx, evp_md, engine) — track SHA384 incremental
+// ---------------------------------------------------------------------------
+
+static int (*orig_EVP_DigestInit_ex)(void *ctx, const EVP_MD *evp_md, void *engine);
+
+static int hook_EVP_DigestInit_ex(void *ctx, const EVP_MD *evp_md, void *engine) {
+    int ret = orig_EVP_DigestInit_ex ? orig_EVP_DigestInit_ex(ctx, evp_md, engine) : 1;
+
+    if (ctx && !g_inHook) {
+        g_inHook = 1;
+        int nid = (evp_md && g_EVP_MD_type) ? g_EVP_MD_type(evp_md) : -1;
+        // NID 673 = SHA384, 672 = SHA256, 674 = SHA512
+        // Only track SHA384 (NID 673)
+        if (nid == 673) {
+            EvpCtxEntry *e = evpCtxAlloc(ctx);
+            if (e) {
+                e->md_nid        = nid;
+                e->data_head_len = 0;
+                e->data_total    = 0;
+            }
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][EVP_DigestInit_ex] SHA384 seq=%d ctx=%p",
+                      e ? e->seq : -1, ctx]);
+        }
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 8: EVP_DigestUpdate(ctx, data, len)
+// ---------------------------------------------------------------------------
+
+static int (*orig_EVP_DigestUpdate)(void *ctx, const void *data, size_t len);
+
+static int hook_EVP_DigestUpdate(void *ctx, const void *data, size_t len) {
+    int ret = orig_EVP_DigestUpdate ? orig_EVP_DigestUpdate(ctx, data, len) : 1;
+
+    if (ctx && !g_inHook) {
+        EvpCtxEntry *e = evpCtxFind(ctx);
+        if (e) {
+            g_inHook = 1;
+            if (data && len > 0 && e->data_head_len < sizeof(e->data_head)) {
+                size_t copy = sizeof(e->data_head) - e->data_head_len;
+                if (copy > len) copy = len;
+                memcpy(e->data_head + e->data_head_len, data, copy);
+                e->data_head_len += copy;
+            }
+            e->data_total += len;
+            NSString *dataHex = (data && len > 0)
+                ? hexEncodeShort((const uint8_t *)data, len) : @"(null)";
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][EVP_DigestUpdate] SHA384 seq=%d ctx=%p data(%zuB)=%@",
+                      e->seq, ctx, len, dataHex]);
+            g_inHook = 0;
+        }
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 9: EVP_DigestFinal_ex(ctx, md, s)
+// ---------------------------------------------------------------------------
+
+static int (*orig_EVP_DigestFinal_ex)(void *ctx, unsigned char *md, unsigned int *s);
+
+static int hook_EVP_DigestFinal_ex(void *ctx, unsigned char *md, unsigned int *s) {
+    int ret = orig_EVP_DigestFinal_ex ? orig_EVP_DigestFinal_ex(ctx, md, s) : 1;
+
+    if (ctx && !g_inHook) {
+        EvpCtxEntry *e = evpCtxFind(ctx);
+        if (e) {
+            g_inHook = 1;
+            unsigned int outLen = (s && *s > 0) ? *s : 48; // SHA384 = 48B
+            NSString *outHex  = (md && outLen > 0 && outLen <= 64)
+                ? hexEncode(md, outLen) : @"(null)";
+            NSString *first32 = (md && outLen >= 32)
+                ? hexEncode(md, 32) : @"(short)";
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][EVP_DigestFinal_ex] SHA384 seq=%d ctx=%p "
+                      @"data_total=%zuB output(%uB)=%@ first32=%@",
+                      e->seq, ctx, e->data_total, outLen, outHex, first32]);
+            evpCtxFree(ctx);
+            g_inHook = 0;
+        }
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 10: HKDF offset hooks in NFWebCrypto
+//
+// NFWebCrypto offsets (from IPA analysis):
+//   HKDF-Extract : 0x00011990
+//   HKDF-Expand  : 0x000119b8
+//
+// Both functions are static C++ — no exported symbol, hook by offset.
+// Prototype guessed from HKDF spec:
+//   int HKDF_extract(const EVP_MD *digest,
+//                    const uint8_t *salt, size_t salt_len,
+//                    const uint8_t *ikm,  size_t ikm_len,
+//                    uint8_t *prk,        size_t *prk_len)
+//
+//   int HKDF_expand(const EVP_MD *digest,
+//                   const uint8_t *prk,  size_t prk_len,
+//                   const uint8_t *info, size_t info_len,
+//                   uint8_t *okm,        size_t okm_len)
+//
+// NOTE: These offsets are for NFWebCrypto v15.48.1 and may need adjustment.
+// ---------------------------------------------------------------------------
+
+typedef int (*HKDF_extract_fn)(const EVP_MD *digest,
+                                const uint8_t *salt, size_t salt_len,
+                                const uint8_t *ikm,  size_t ikm_len,
+                                uint8_t *prk,        size_t *prk_len);
+typedef int (*HKDF_expand_fn)(const EVP_MD *digest,
+                               const uint8_t *prk,  size_t prk_len,
+                               const uint8_t *info, size_t info_len,
+                               uint8_t *okm,        size_t okm_len);
+
+static HKDF_extract_fn orig_HKDF_extract = NULL;
+static HKDF_expand_fn  orig_HKDF_expand  = NULL;
+
+static int hook_HKDF_extract(const EVP_MD *digest,
+                               const uint8_t *salt, size_t salt_len,
+                               const uint8_t *ikm,  size_t ikm_len,
+                               uint8_t *prk,        size_t *prk_len) {
+    int ret = orig_HKDF_extract
+        ? orig_HKDF_extract(digest, salt, salt_len, ikm, ikm_len, prk, prk_len)
+        : 0;
+
+    if (!g_inHook) {
+        g_inHook = 1;
+        int nid     = (digest && g_EVP_MD_type) ? g_EVP_MD_type(digest) : -1;
+        size_t outLen = (prk_len && *prk_len > 0) ? *prk_len : (nid == 673 ? 48 : 32);
+        NSString *saltHex = salt ? hexEncodeShort(salt, salt_len) : @"(null)";
+        NSString *ikmHex  = ikm  ? hexEncodeShort(ikm,  ikm_len)  : @"(null)";
+        NSString *prkHex  = prk  ? hexEncode(prk, outLen)          : @"(null)";
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:
+                  @"[NFXEntityAuth][HKDF_extract] nid=%d salt(%zuB)=%@ ikm(%zuB)=%@ prk(%zuB)=%@",
+                  nid, salt_len, saltHex, ikm_len, ikmHex, outLen, prkHex]);
+        if (prk && outLen >= 32) {
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][HKDF_extract] prk_first32=%@",
+                      hexEncode(prk, 32)]);
+        }
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+static int hook_HKDF_expand(const EVP_MD *digest,
+                              const uint8_t *prk,  size_t prk_len,
+                              const uint8_t *info, size_t info_len,
+                              uint8_t *okm,        size_t okm_len) {
+    int ret = orig_HKDF_expand
+        ? orig_HKDF_expand(digest, prk, prk_len, info, info_len, okm, okm_len)
+        : 0;
+
+    if (!g_inHook) {
+        g_inHook = 1;
+        int nid    = (digest && g_EVP_MD_type) ? g_EVP_MD_type(digest) : -1;
+        NSString *prkHex  = prk  ? hexEncodeShort(prk,  prk_len)  : @"(null)";
+        NSString *infoHex = info ? hexEncodeShort(info, info_len) : @"(null)";
+        NSString *okmHex  = okm  ? hexEncodeShort(okm,  okm_len)  : @"(null)";
+        file_log(g_log_hmac,
+                 [NSString stringWithFormat:
+                  @"[NFXEntityAuth][HKDF_expand] nid=%d prk(%zuB)=%@ info(%zuB)=%@ okm(%zuB)=%@",
+                  nid, prk_len, prkHex, info_len, infoHex, okm_len, okmHex]);
+        if (okm && okm_len >= 32) {
+            file_log(g_log_hmac,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth][HKDF_expand] okm_first32=%@",
+                      hexEncode(okm, 32)]);
+        }
+        g_inHook = 0;
+    }
+    return ret;
+}
+
+// ---------------------------------------------------------------------------
+// HOOK 11: NSData dataWithContentsOfFile: — catch large file reads (4-10 KB)
 //          that could be device_key_data / devicetoken source material.
 // ---------------------------------------------------------------------------
 
@@ -516,6 +984,121 @@ static void installNFWebCryptoHooks(void) {
         file_log(g_log_general, @"[NFXEntityAuth] HMAC hooked");
     } else {
         file_log(g_log_general, @"[NFXEntityAuth] HMAC symbol not found");
+    }
+
+    // Resolve EVP_MD_type for NID lookups in new hooks
+    sym = dlsym(nfwc, "EVP_MD_type");
+    if (sym) {
+        g_EVP_MD_type = (EVP_MD_type_fn)sym;
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_MD_type resolved");
+    }
+
+    // HMAC_CTX_new
+    sym = dlsym(nfwc, "HMAC_CTX_new");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_HMAC_CTX_new, (void **)&orig_HMAC_CTX_new);
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_CTX_new hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_CTX_new not found");
+    }
+
+    // HMAC_Init_ex
+    sym = dlsym(nfwc, "HMAC_Init_ex");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_HMAC_Init_ex, (void **)&orig_HMAC_Init_ex);
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_Init_ex hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_Init_ex not found");
+    }
+
+    // HMAC_Update
+    sym = dlsym(nfwc, "HMAC_Update");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_HMAC_Update, (void **)&orig_HMAC_Update);
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_Update hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_Update not found");
+    }
+
+    // HMAC_Final
+    sym = dlsym(nfwc, "HMAC_Final");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_HMAC_Final, (void **)&orig_HMAC_Final);
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_Final hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] HMAC_Final not found");
+    }
+
+    // SHA384 one-shot
+    sym = dlsym(nfwc, "SHA384");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_SHA384, (void **)&orig_SHA384);
+        file_log(g_log_general, @"[NFXEntityAuth] SHA384 hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] SHA384 not found");
+    }
+
+    // EVP_DigestInit_ex
+    sym = dlsym(nfwc, "EVP_DigestInit_ex");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_EVP_DigestInit_ex, (void **)&orig_EVP_DigestInit_ex);
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_DigestInit_ex hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_DigestInit_ex not found");
+    }
+
+    // EVP_DigestUpdate
+    sym = dlsym(nfwc, "EVP_DigestUpdate");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_EVP_DigestUpdate, (void **)&orig_EVP_DigestUpdate);
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_DigestUpdate hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_DigestUpdate not found");
+    }
+
+    // EVP_DigestFinal_ex
+    sym = dlsym(nfwc, "EVP_DigestFinal_ex");
+    if (sym) {
+        MSHookFunction(sym, (void *)hook_EVP_DigestFinal_ex, (void **)&orig_EVP_DigestFinal_ex);
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_DigestFinal_ex hooked");
+    } else {
+        file_log(g_log_general, @"[NFXEntityAuth] EVP_DigestFinal_ex not found");
+    }
+
+    // HKDF functions by offset in NFWebCrypto image
+    // Determine the NFWebCrypto image base
+    {
+        uint32_t imgCount = _dyld_image_count();
+        uintptr_t nfwcBase = 0;
+        for (uint32_t i = 0; i < imgCount; i++) {
+            const char *name = _dyld_get_image_name(i);
+            if (name && strstr(name, "NFWebCrypto.framework/NFWebCrypto")) {
+                nfwcBase = (uintptr_t)_dyld_get_image_header(i);
+                file_log(g_log_general,
+                         [NSString stringWithFormat:@"[NFXEntityAuth] NFWebCrypto base=0x%lx",
+                          (unsigned long)nfwcBase]);
+                break;
+            }
+        }
+
+        if (nfwcBase != 0) {
+            // HKDF-Extract and HKDF-Expand are static C++ functions with uncertain
+            // prototypes. Hooking them by hardcoded offset risks a crash if the
+            // calling convention does not match. Instead, log their addresses so
+            // they can be verified with a debugger before enabling offset hooks.
+            uintptr_t extractAddr = nfwcBase + 0x11990;
+            uintptr_t expandAddr  = nfwcBase + 0x119b8;
+            file_log(g_log_general,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth] HKDF_extract candidate addr=0x%lx (not hooked — verify offset first)",
+                      (unsigned long)extractAddr]);
+            file_log(g_log_general,
+                     [NSString stringWithFormat:
+                      @"[NFXEntityAuth] HKDF_expand candidate addr=0x%lx (not hooked — verify offset first)",
+                      (unsigned long)expandAddr]);
+        } else {
+            file_log(g_log_general, @"[NFXEntityAuth] NFWebCrypto base not found — HKDF address logging skipped");
+        }
     }
 
     g_nfwcHooked = YES;
