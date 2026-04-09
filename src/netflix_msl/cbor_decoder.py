@@ -281,6 +281,89 @@ class CborMslDecoder:
             "raw_message": msg["raw"],
         }
 
+    def parse_appboot_response(self, raw: bytes) -> dict:
+        """appboot レスポンス CBOR を解析し、鍵交換データを抽出する.
+
+        appboot レスポンス構造 (msl_cbor_key_exchange_analysis.md §1.2):
+          {
+            33: bytes  ← key_response_data
+            16: bytes  ← message signature
+            32: dict   ← header (capabilities)
+          }
+
+        key_response_data (key 33) の sub-key:
+          6: bytes(96)  ← サーバー DH レスポンス (推定: IV(16B) + CT(48B) + HMAC(32B))
+          7: bytes(1)   ← ステータスフラグ (0x00)
+          8: str        ← スキーム ID ("3" または "5")
+          9: bytes(16)  ← サーバー nonce (KDF 入力)
+
+        Args:
+            raw: appboot レスポンスの生バイト列 (CBOR 形式)
+
+        Returns:
+            {
+                "key_response_data": dict | None,  # CBOR デコードされた key_response_data
+                "server_scheme_data": bytes | None, # key 33.6 (96B) — サーバー DH レスポンス
+                "server_nonce": bytes | None,       # key 33.9 (16B) — サーバー nonce
+                "scheme_id": str | None,            # key 33.8 — スキーム ID
+                "status_flag": bytes | None,        # key 33.7 — ステータスフラグ
+                "header": dict | None,              # CBOR デコードされたヘッダー
+                "signature": bytes | None,          # メッセージ署名 (32B)
+                "raw_message": list[dict],          # CBOR 生データ
+            }
+
+        Raises:
+            DecodeError: CBOR デコードまたはパースに失敗した場合
+        """
+        msg = self.decode_message(raw)
+
+        key_exchange_raw = msg.get("key_exchange")
+        key_response_data: dict | None = None
+        server_scheme_data: bytes | None = None
+        server_nonce: bytes | None = None
+        scheme_id: str | None = None
+        status_flag: bytes | None = None
+
+        if key_exchange_raw is not None:
+            # key_exchange はバイト列の場合 CBOR デコード
+            if isinstance(key_exchange_raw, bytes):
+                krd = self._try_decode_cbor(key_exchange_raw)
+            else:
+                krd = key_exchange_raw
+
+            if isinstance(krd, dict):
+                key_response_data = krd
+                # sub-key 6: サーバー DH レスポンス (96B)
+                v6 = krd.get(KEYEX_SCHEME)
+                if isinstance(v6, bytes):
+                    server_scheme_data = v6
+
+                # sub-key 7: ステータスフラグ
+                v7 = krd.get(KEYEX_KEYDATA)
+                if isinstance(v7, bytes):
+                    status_flag = v7
+
+                # sub-key 8: スキーム ID ("3" / "5")
+                v8 = krd.get(KEYEX_IDENTITY)
+                if v8 is not None:
+                    scheme_id = str(v8)
+
+                # sub-key 9: サーバー nonce (16B)
+                v9 = krd.get(KEYEX_NONCE)
+                if isinstance(v9, bytes):
+                    server_nonce = v9
+
+        return {
+            "key_response_data": key_response_data,
+            "server_scheme_data": server_scheme_data,
+            "server_nonce": server_nonce,
+            "scheme_id": scheme_id,
+            "status_flag": status_flag,
+            "header": msg.get("header"),
+            "signature": msg.get("signature"),
+            "raw_message": msg.get("raw", []),
+        }
+
     # ------------------------------------------------------------------
     # 内部ヘルパー
     # ------------------------------------------------------------------

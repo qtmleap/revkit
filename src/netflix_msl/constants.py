@@ -50,6 +50,20 @@ RSA_KEYPAIR_ID = "rsaKeypairId"
 IOS_KDF_PSK = bytes.fromhex("027617984f6227539a630b897c017d69")
 IOS_KDF_NONCE = bytes.fromhex("809f82a7addf548d3ea9dd067ff9bb91")
 
+# iOS DH パラメータ (1024-bit, g=5, p は Netflix 固有値)
+# 出典: raws/msl_keys.json "dh_p" / "dh_g"
+IOS_DH_P = int(
+    "9694e9d8d93a5ac74c509b4bbce85e92132cd19cce477d1a7e47d527d9ec291515f0b8b3e1"
+    "eaed5006e1b1b91ea25b91a01b10e2e834b8d660b2e321ad644ce1a83b328d9014ee7e16f1"
+    "e44ffe89579ac3ee47d668b6b76687c2fe90a35b5e6028fd04efea882373ecf60ba2f637e4"
+    "cdaa1b6089d6c0b561a8e520e796de27df",
+    16,
+)
+IOS_DH_G = 5
+
+# appboot エンドポイント
+IOS_APPBOOT_ENDPOINT = "https://appboot.netflix.com/appboot/"
+
 # key 33.6 scheme_data の固定デバイスヘッダー (128B)
 # 180 個の 352B appboot サンプルのうち 165 個 (標準 iPhone) で共通の定数。
 # plaintext[0:128] の値 (XOR 復号後)。
