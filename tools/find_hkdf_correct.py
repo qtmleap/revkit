@@ -46,7 +46,11 @@ found: list[str] = []
 
 
 def check(label: str, derived: bytes) -> bool:
-    if len(derived) >= 48 and derived[:16] == TARGET_ENC and derived[16:48] == TARGET_HMAC:
+    if (
+        len(derived) >= 48
+        and derived[:16] == TARGET_ENC
+        and derived[16:48] == TARGET_HMAC
+    ):
         msg = f"[FULL MATCH] {label}"
         print(msg)
         found.append(msg)
@@ -187,7 +191,7 @@ print("=" * 70)
 for offset in range(0, len(DH_SHARED_CORRECT) - 15):
     candidate = DH_SHARED_CORRECT[offset : offset + 16]
     if candidate == TARGET_ENC:
-        print(f"[MATCH] shared_correct[{offset}:{offset+16}] == enc_key")
+        print(f"[MATCH] shared_correct[{offset}:{offset + 16}] == enc_key")
 
 print()
 print("=" * 70)
@@ -328,7 +332,10 @@ for hash_name, hash_alg in HASH_ALGS.items():
                     info=info_val,
                 )
                 derived = hkdf.derive(shared_with_zero)
-                check(f"HKDF(0x00+shared,h={hash_name},s={salt_name},i={info_name})", derived)
+                check(
+                    f"HKDF(0x00+shared,h={hash_name},s={salt_name},i={info_name})",
+                    derived,
+                )
             except Exception:
                 pass
 
@@ -347,6 +354,8 @@ else:
     for inp_name, inp_val in INPUT_VARIANTS:
         h256 = hashlib.sha256(inp_val).digest()
         h384 = hashlib.sha384(inp_val).digest()
-        print(f"  {inp_name}: SHA256[:16]={h256[:16].hex()} SHA384[:16]={h384[:16].hex()}")
+        print(
+            f"  {inp_name}: SHA256[:16]={h256[:16].hex()} SHA384[:16]={h384[:16].hex()}"
+        )
     print(f"  target enc_key:        {TARGET_ENC.hex()}")
     print(f"  target hmac_key[:16]:  {TARGET_HMAC[:16].hex()}")

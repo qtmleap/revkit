@@ -49,9 +49,7 @@ def analyze(binary_path: str) -> None:
     print("\n  BN_bn2bin callers (Netflix code only):")
     xrefs = r2.cmd("axt @ sym._BN_bn2bin").strip()
     for line in xrefs.split("\n"):
-        if line.strip() and any(
-            kw in line.lower() for kw in ["netflix", "tee", "rsa"]
-        ):
+        if line.strip() and any(kw in line.lower() for kw in ["netflix", "tee", "rsa"]):
             print(f"    {line.strip()}")
 
     # =========================================================================
@@ -92,8 +90,10 @@ def analyze(binary_path: str) -> None:
     print("-" * 72)
 
     print("\n  Called from: caDhGenKeys @ 0x17E90")
-    print("  Signature: teeGenDhKeys(p, p_len, g_be, pub_buf, pub_len,"
-          " priv_buf, priv_len, priv_len_out)")
+    print(
+        "  Signature: teeGenDhKeys(p, p_len, g_be, pub_buf, pub_len,"
+        " priv_buf, priv_len, priv_len_out)"
+    )
     print("\n  Operations:")
     print("    1. DH_new()")
     print("    2. BN_bin2bn(p, p_len) -> prime bignum")

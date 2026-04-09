@@ -77,7 +77,9 @@ def analyze(binary_path: str) -> None:
     print("    2. Copy into std::vector<uint8_t>")
     print("    3. Base64::decode() the string → raw DER bytes")
     print("    4. Allocate AppleNativeKey (0x38 bytes)")
-    print("    5. Call virtual importKey(KeyFormat=2 [SPKI], data, Algorithm=5 [RSASSA-PKCS1-v1_5], usage=8 [VERIFY])")
+    print(
+        "    5. Call virtual importKey(KeyFormat=2 [SPKI], data, Algorithm=5 [RSASSA-PKCS1-v1_5], usage=8 [VERIFY])"
+    )
     print("       → vtable offset 0xe0")
     print("    6. On success, persist key with handle name 'ABKP'")
     print("       → vtable offset 0xa8")
@@ -88,7 +90,9 @@ def analyze(binary_path: str) -> None:
     print("    2. Copy into std::vector<uint8_t>")
     print("    3. Base64::decode() the string → raw DER bytes")
     print("    4. Allocate AppleNativeKey (0x38 bytes)")
-    print("    5. Call virtual importKey(KeyFormat=2 [SPKI], data, Algorithm=0x10 [ECDSA], usage=8 [VERIFY])")
+    print(
+        "    5. Call virtual importKey(KeyFormat=2 [SPKI], data, Algorithm=0x10 [ECDSA], usage=8 [VERIFY])"
+    )
     print("       → vtable offset 0xe0")
     print("    6. On success, persist key with handle name 'ABECCKP'")
     print("       → vtable offset 0xa8")
@@ -96,17 +100,27 @@ def analyze(binary_path: str) -> None:
 
     # ── Step 4: Analyze importKey for algo dispatch ──────────────────────
     print("\n## 4. importKey algorithm dispatch (0x0000d31c)")
-    print("  Signature: importKey(KeyFormat, shared_ptr<KeyByteArray>, Algorithm, usage, keyId&, KeyType&)")
+    print(
+        "  Signature: importKey(KeyFormat, shared_ptr<KeyByteArray>, Algorithm, usage, keyId&, KeyType&)"
+    )
     print()
     print("  KeyFormat=2 (SPKI) branch at 0xd414:")
     print("    switch (Algorithm) {")
-    print("      case 5 (RSASSA-PKCS1-v1_5): → d2i_RSA_PUBKEY()  // parse RSA public key from DER")
-    print("      case 0x10 (ECDSA):          → d2i_EC_PUBKEY()   // parse EC public key from DER")
+    print(
+        "      case 5 (RSASSA-PKCS1-v1_5): → d2i_RSA_PUBKEY()  // parse RSA public key from DER"
+    )
+    print(
+        "      case 0x10 (ECDSA):          → d2i_EC_PUBKEY()   // parse EC public key from DER"
+    )
     print("      default:                    → error (unsupported)")
     print("    }")
     print()
-    print("  For RSA: stores as AppleNativeKey { type=1, usage, algo=5, rsa_key, RSA_free }")
-    print("  For ECC: stores as AppleNativeKey { type=1, usage, algo=0x10, ec_key, EC_KEY_free }")
+    print(
+        "  For RSA: stores as AppleNativeKey { type=1, usage, algo=5, rsa_key, RSA_free }"
+    )
+    print(
+        "  For ECC: stores as AppleNativeKey { type=1, usage, algo=0x10, ec_key, EC_KEY_free }"
+    )
 
     # ── Step 5: Verify operations available ──────────────────────────────
     print("\n## 5. Signature verification functions")

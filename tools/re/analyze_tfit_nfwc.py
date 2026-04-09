@@ -103,9 +103,9 @@ def entropy(data: bytes) -> float:
 def dump_key_schedule(binary: bytes, name: str, offset: int):
     """Dump a 224-byte WB-AES key schedule."""
     data = binary[offset : offset + 0xE0]
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {name} @ 0x{offset:06X} (224 bytes)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for i in range(0, len(data), 16):
         row = data[i : i + 16]
         hexstr = " ".join(f"{b:02x}" for b in row)
@@ -119,8 +119,10 @@ def dump_rlut_stats(binary: bytes, name: str, offset: int):
     values = struct.unpack("<4096I", data)
     unique = len(set(values))
     ent = entropy(data)
-    print(f"  {name}: offset=0x{offset:06X}, entries=4096, "
-          f"unique={unique}, entropy={ent:.2f} bits/byte")
+    print(
+        f"  {name}: offset=0x{offset:06X}, entries=4096, "
+        f"unique={unique}, entropy={ent:.2f} bits/byte"
+    )
 
 
 def dump_output_sbox(binary: bytes, name: str, offset: int):
@@ -129,8 +131,9 @@ def dump_output_sbox(binary: bytes, name: str, offset: int):
     ent = entropy(data)
     # Check if it's a permutation
     is_perm = len(set(data)) == 256
-    print(f"  {name}: offset=0x{offset:06X}, entropy={ent:.2f}, "
-          f"is_permutation={is_perm}")
+    print(
+        f"  {name}: offset=0x{offset:06X}, entropy={ent:.2f}, is_permutation={is_perm}"
+    )
 
 
 def main():
@@ -146,15 +149,26 @@ def main():
     print("\n" + "=" * 60)
     print("  DEVICE-SPECIFIC KEY SCHEDULES")
     print("=" * 60)
-    for name in ["TFIT_key_iAES11_mgkATV", "TFIT_key_iAES11_mgkiPad",
-                  "TFIT_key_iAES11_mgkiPhone"]:
+    for name in [
+        "TFIT_key_iAES11_mgkATV",
+        "TFIT_key_iAES11_mgkiPad",
+        "TFIT_key_iAES11_mgkiPhone",
+    ]:
         dump_key_schedule(binary, name, TFIT_SYMBOLS[name])
 
     # Check if iPad and iPhone tables are identical
-    ipad = binary[TFIT_SYMBOLS["TFIT_key_iAES11_mgkiPad"]:
-                   TFIT_SYMBOLS["TFIT_key_iAES11_mgkiPad"] + 0xE0]
-    iphone = binary[TFIT_SYMBOLS["TFIT_key_iAES11_mgkiPhone"]:
-                     TFIT_SYMBOLS["TFIT_key_iAES11_mgkiPhone"] + 0xE0]
+    ipad = binary[
+        TFIT_SYMBOLS["TFIT_key_iAES11_mgkiPad"] : TFIT_SYMBOLS[
+            "TFIT_key_iAES11_mgkiPad"
+        ]
+        + 0xE0
+    ]
+    iphone = binary[
+        TFIT_SYMBOLS["TFIT_key_iAES11_mgkiPhone"] : TFIT_SYMBOLS[
+            "TFIT_key_iAES11_mgkiPhone"
+        ]
+        + 0xE0
+    ]
     print(f"\n  iPad == iPhone: {ipad == iphone}")
 
     # Round LUTs
@@ -193,7 +207,7 @@ def main():
     total_end = TFIT_SYMBOLS["TFIT_out_iAES11_15"] + 0x100
     total_size = total_end - total_start
     print(f"  Range: 0x{total_start:06X} - 0x{total_end:06X}")
-    print(f"  Total size: {total_size} bytes ({total_size/1024:.1f} KB)")
+    print(f"  Total size: {total_size} bytes ({total_size / 1024:.1f} KB)")
     ent = entropy(binary[total_start:total_end])
     print(f"  Overall entropy: {ent:.2f} bits/byte")
 

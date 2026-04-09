@@ -36,7 +36,9 @@ PAIRS = [
             "f2cb8911e446313c2cb0567f7de865b3"
         ),
         bytes.fromhex("97b99f4e88e8e73779aa20ac11877c5d"),
-        bytes.fromhex("d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0"),
+        bytes.fromhex(
+            "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0"
+        ),
     ),
     # HMAC key として別のペアリング候補
     (
@@ -52,7 +54,9 @@ PAIRS = [
             "f2cb8911e446313c2cb0567f7de865b3"
         ),
         bytes.fromhex("97b99f4e88e8e73779aa20ac11877c5d"),
-        bytes.fromhex("a4333e99a34eef3663f8e38e217e696949cd3bf57598c5c260fedb8997afa82b"),  # 最初のHMAC
+        bytes.fromhex(
+            "a4333e99a34eef3663f8e38e217e696949cd3bf57598c5c260fedb8997afa82b"
+        ),  # 最初のHMAC
     ),
 ]
 
@@ -60,7 +64,11 @@ found: list[str] = []
 
 
 def check(label: str, derived: bytes, target_enc: bytes, target_hmac: bytes) -> bool:
-    if len(derived) >= 48 and derived[:16] == target_enc and derived[16:48] == target_hmac:
+    if (
+        len(derived) >= 48
+        and derived[:16] == target_enc
+        and derived[16:48] == target_hmac
+    ):
         msg = f"[FULL MATCH] {label}"
         print(msg)
         found.append(msg)
@@ -179,7 +187,7 @@ for pair_name, shared_secret, target_enc, target_hmac in PAIRS:
     print("部分列比較:")
     for offset in range(0, len(shared_secret) - 15):
         if shared_secret[offset : offset + 16] == target_enc:
-            print(f"  [MATCH] shared[{offset}:{offset+16}] == enc_key")
+            print(f"  [MATCH] shared[{offset}:{offset + 16}] == enc_key")
 
     print()
 
@@ -200,9 +208,13 @@ print("=" * 70)
 # 仮説: a4333e... = HKDF の中間 PRK?
 # HMAC が HKDF の一部として呼ばれているなら...
 
-HMAC_AFTER_DH = bytes.fromhex("a4333e99a34eef3663f8e38e217e696949cd3bf57598c5c260fedb8997afa82b")
+HMAC_AFTER_DH = bytes.fromhex(
+    "a4333e99a34eef3663f8e38e217e696949cd3bf57598c5c260fedb8997afa82b"
+)
 ENC_AFTER_DH = bytes.fromhex("97b99f4e88e8e73779aa20ac11877c5d")
-HMAC_FINAL = bytes.fromhex("d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0")
+HMAC_FINAL = bytes.fromhex(
+    "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0"
+)
 DH_SHARED_CORRECT = bytes.fromhex(
     "052a8bfe9f1a1a9becdd67672338191b"
     "d7b5aff7fffe1f4cfbd97a0b14f8d59a"
@@ -227,7 +239,9 @@ print()
 # verify: HMAC-SHA256(salt=?, DH_SHARED) = a4333e...
 # salt が zeros_32 の場合:
 for salt_val, salt_name in [(b"\x00" * 32, "z32"), (None, "None"), (b"", "empty")]:
-    actual_salt = salt_val if salt_val is not None else b"\x00" * 32  # HKDF-Extract のデフォルト
+    actual_salt = (
+        salt_val if salt_val is not None else b"\x00" * 32
+    )  # HKDF-Extract のデフォルト
     prk = hmac_mod.new(actual_salt, DH_SHARED_CORRECT, hashlib.sha256).digest()
     print(f"HMAC-SHA256(salt={salt_name}, DH_SHARED) = {prk.hex()}")
     if prk == HMAC_AFTER_DH:
@@ -246,7 +260,9 @@ for info_name, info_val in [("empty", b""), ("01", b"\x01"), ("enc", b"enc")]:
             )
             derived = hkdf_expand.derive(prk_candidate)
             if derived[:16] == ENC_AFTER_DH:
-                print(f"[PRK→ENC MATCH] HKDFExpand(prk=HMAC_AFTER_DH, info={info_name}, L={out_len})")
+                print(
+                    f"[PRK→ENC MATCH] HKDFExpand(prk=HMAC_AFTER_DH, info={info_name}, L={out_len})"
+                )
         except Exception:
             pass
 

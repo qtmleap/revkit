@@ -63,7 +63,9 @@ DH_SHARED_NEW = bytes.fromhex(
     "f2cb8911e446313c2cb0567f7de865b3"
 )
 TARGET_ENC = bytes.fromhex("97b99f4e88e8e73779aa20ac11877c5d")
-TARGET_HMAC = bytes.fromhex("d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0")
+TARGET_HMAC = bytes.fromhex(
+    "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0"
+)
 
 # ログで記録された全ての 32-byte HMAC 鍵 (DH後)
 LOGGED_HMAC_KEYS_AFTER_DH = [
@@ -85,6 +87,7 @@ print()
 print("=" * 70)
 print("07時台の appboot req から DH 鍵の手がかりを探す")
 print("=" * 70)
+
 
 def try_decode_cbor(data: bytes) -> dict | None:
     if data[:2] == b"\x1f\x8b":
@@ -196,7 +199,9 @@ for res_file in sorted(RAWS_DIR.glob("res_*appboot*.bin")):
             if pt_unpad is None:
                 continue
             if len(pt_unpad) >= 16 and pt_unpad[:16] == TARGET_ENC:
-                msg = f"[MATCH] {res_file.name}: wrap_key={wrap_name} pt={pt_unpad.hex()}"
+                msg = (
+                    f"[MATCH] {res_file.name}: wrap_key={wrap_name} pt={pt_unpad.hex()}"
+                )
                 print(msg)
                 matches_found.append(msg)
 
@@ -211,7 +216,9 @@ for res_file in sorted(RAWS_DIR.glob("res_*appboot*.bin")):
                 if pt_unpad is None:
                     continue
                 if len(pt_unpad) >= 16 and pt_unpad[:16] == TARGET_ENC:
-                    msg = f"[MATCH-B] {res_file.name}: iv={iv_name} wrap_key={wrap_name}"
+                    msg = (
+                        f"[MATCH-B] {res_file.name}: iv={iv_name} wrap_key={wrap_name}"
+                    )
                     print(msg)
                     matches_found.append(msg)
 

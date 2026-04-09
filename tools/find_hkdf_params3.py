@@ -55,7 +55,10 @@ def check(label: str, derived: bytes) -> bool:
                 found.append(msg)
                 return True
             combined_rev = hmac_k + enc
-            if len(derived) >= len(combined_rev) and derived[: len(combined_rev)] == combined_rev:
+            if (
+                len(derived) >= len(combined_rev)
+                and derived[: len(combined_rev)] == combined_rev
+            ):
                 msg = f"[HMAC+ENC MATCH] {label}  hmac={hmac_hex[:8]} enc={enc_hex[:8]}"
                 print(msg)
                 found.append(msg)
@@ -245,7 +248,7 @@ for offset in range(0, 128 - 15, 1):
     candidate = DH_SHARED[offset : offset + 16]
     for enc_hex in ENC_UNIQUE:
         if bytes.fromhex(enc_hex) == candidate:
-            print(f"[MATCH] shared[{offset}:{offset+16}] == enc={enc_hex[:8]}")
+            print(f"[MATCH] shared[{offset}:{offset + 16}] == enc={enc_hex[:8]}")
 
 print()
 print("=" * 70)
@@ -310,9 +313,13 @@ if all_res_96:
     # 各バイト位置でユニーク値の数を数える (高=ランダム, 低=固定)
     print("Byte position uniqueness (low=fixed, high=random):")
     for i in range(0, 96, 16):
-        unique_counts = [len(set(b[j] for b in all_res_96)) for j in range(i, min(i+16, 96))]
+        unique_counts = [
+            len(set(b[j] for b in all_res_96)) for j in range(i, min(i + 16, 96))
+        ]
         avg = sum(unique_counts) / len(unique_counts)
-        print(f"  bytes {i:2d}-{i+15:2d}: avg_unique={avg:.1f}  (min={min(unique_counts)} max={max(unique_counts)})")
+        print(
+            f"  bytes {i:2d}-{i + 15:2d}: avg_unique={avg:.1f}  (min={min(unique_counts)} max={max(unique_counts)})"
+        )
     # 先頭 16 bytes のユニーク性
     first_16 = [b[:16] for b in all_res_96]
     unique_first_16 = set(b.hex() for b in first_16)
@@ -330,11 +337,15 @@ if found:
 else:
     print("一致なし")
     print()
-    print("仮説: msl_keys.json の dh_shared_secret と session_enc_key は別のセッションのもの")
+    print(
+        "仮説: msl_keys.json の dh_shared_secret と session_enc_key は別のセッションのもの"
+    )
     print("  → Tweak の実装で g_keys は最後に更新された値を保持するため、")
     print("    複数の DH 鍵交換が行われた場合に対応が崩れる可能性がある")
     print()
     print(f"msl_keys.json の dh_shared_secret = {keys['dh_shared_secret'][:32]}...")
     print(f"  session_enc_key                  = {keys['session_enc_key']}")
-    print(f"  SHA256(shared)[:16]              = {hashlib.sha256(DH_SHARED).hexdigest()[:32]}")
+    print(
+        f"  SHA256(shared)[:16]              = {hashlib.sha256(DH_SHARED).hexdigest()[:32]}"
+    )
     print(f"  → enc_key が SHA256(shared)[:16] と一致しない → 別セッションの可能性大")

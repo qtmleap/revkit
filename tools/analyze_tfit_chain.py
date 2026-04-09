@@ -36,9 +36,7 @@ def parse_log(path: Path) -> dict:
     """
     re_chain_start = re.compile(r"\[TFIT\] === chain started")
     re_chain_end = re.compile(r"\[TFIT\] === chain ended \((\d+) pairs captured\)")
-    re_aes_enc = re.compile(
-        r"\[AES_encrypt\] #(\d+) in=([0-9a-f]+) out=([0-9a-f]+)"
-    )
+    re_aes_enc = re.compile(r"\[AES_encrypt\] #(\d+) in=([0-9a-f]+) out=([0-9a-f]+)")
     re_set_enc_key = re.compile(
         r"\[aesCbc\] AES_set_(?:en|de)crypt_key bits=(\d+) key=([0-9a-f]+)"
     )
@@ -172,13 +170,13 @@ def analyze_chain_structure(chain: dict, idx: int) -> None:
 
     # Count zero-input KAT anchor pairs
     zero_inputs = [(n, inp, out) for n, inp, out in pairs if inp == "0" * 32]
-    print(f"  KAT zero-input pairs: {len(zero_inputs)} at positions {[n for n, _, _ in zero_inputs]}")
+    print(
+        f"  KAT zero-input pairs: {len(zero_inputs)} at positions {[n for n, _, _ in zero_inputs]}"
+    )
 
     # Count chained pairs (out[i] == in[i+1])
     chain_links = sum(
-        1
-        for i in range(len(pairs) - 1)
-        if pairs[i][2] == pairs[i + 1][1]
+        1 for i in range(len(pairs) - 1) if pairs[i][2] == pairs[i + 1][1]
     )
     print(f"  Chained pairs (out[i] = in[i+1]): {chain_links}")
 
@@ -226,9 +224,7 @@ def analyze_key_feeding_detail(chain: dict, idx: int) -> None:
         lo_n = out_map.get(lo)
         hi_n = out_map.get(hi)
         if lo_n is not None and hi_n is not None and hi_n == lo_n + 1:
-            print(
-                f"  key={key[:32]}|{key[32:]} <- concat(out[#{lo_n}], out[#{hi_n}])"
-            )
+            print(f"  key={key[:32]}|{key[32:]} <- concat(out[#{lo_n}], out[#{hi_n}])")
         else:
             src = f"lo_from=#{lo_n}" if lo_n else "lo=unknown"
             src += f" hi_from=#{hi_n}" if hi_n else " hi=unknown"
@@ -306,7 +302,9 @@ def analyze_dh_private_key(chain: dict, dh_priv_key: str) -> None:
                     f"  => {mismatches} mismatch: byte 0 differs by 0x40 "
                     f"(DH library sets bit 6: {pb[:2]} vs {out_val[:2]})."
                 )
-                print("  => DH private key = TFIT AES_encrypt output stream, byte 0 | 0x40")
+                print(
+                    "  => DH private key = TFIT AES_encrypt output stream, byte 0 | 0x40"
+                )
     else:
         print(f"  => {mismatches} mismatches.")
 
@@ -326,12 +324,8 @@ def analyze_dh_pub_key_correlation(chain: dict, dh_pub_key: str) -> None:
     pair_inputs = {inp for _, inp, _ in pairs}
     pair_outputs = {out for _, _, out in pairs}
 
-    direct_input_hits = [
-        (i, b) for i, b in enumerate(pub_blocks) if b in pair_inputs
-    ]
-    direct_output_hits = [
-        (i, b) for i, b in enumerate(pub_blocks) if b in pair_outputs
-    ]
+    direct_input_hits = [(i, b) for i, b in enumerate(pub_blocks) if b in pair_inputs]
+    direct_output_hits = [(i, b) for i, b in enumerate(pub_blocks) if b in pair_outputs]
 
     if direct_input_hits or direct_output_hits:
         print("  DIRECT MATCH found.")
@@ -355,9 +349,7 @@ def analyze_dh_pub_key_correlation(chain: dict, dh_pub_key: str) -> None:
             print(
                 f"  Closest XOR: pub_block[{bi}] vs pair#{n}_input -> {min_pc} differing bits"
             )
-        print(
-            "  => DH public key is g^privkey mod p; it is NOT a TFIT AES input."
-        )
+        print("  => DH public key is g^privkey mod p; it is NOT a TFIT AES input.")
 
 
 def analyze_chain2_post_dh(chain: dict, dh_shared_secret: str) -> None:
@@ -415,11 +407,15 @@ def analyze_48b_hmac_key(
     kblocks = blocks_of(key48, 16)
     for i, kb in enumerate(kblocks):
         found = kb in all_pair_outputs
-        print(f"    block[{i}] = {kb}  {'-> found as AES output' if found else '-> NOT found in AES outputs'}")
+        print(
+            f"    block[{i}] = {kb}  {'-> found as AES output' if found else '-> NOT found in AES outputs'}"
+        )
 
     print()
     print("  => 48B key does NOT originate from any captured AES_encrypt output.")
-    print("  => Origin: unknown from this capture (likely app-embedded or server-provided).")
+    print(
+        "  => Origin: unknown from this capture (likely app-embedded or server-provided)."
+    )
 
     if hmac_final_48b:
         digest48 = hmac_final_48b[0]
@@ -431,7 +427,9 @@ def analyze_48b_hmac_key(
         print()
         print("  Input to this HMAC: 0x00 || DH_shared_secret (129 bytes)")
         print("  This is the MSL session key derivation step:")
-        print("    HMAC-SHA384(tfit_key_48B, 0x00 || dh_shared_secret) -> {enc_key || mac_key}")
+        print(
+            "    HMAC-SHA384(tfit_key_48B, 0x00 || dh_shared_secret) -> {enc_key || mac_key}"
+        )
 
 
 def analyze_session_key_usage(hmac_final_48b: list[str]) -> None:
@@ -496,9 +494,15 @@ def main() -> None:
             f"lines {c['start_line']}-{c['end_line']}"
         )
 
-    print(f"\nDH public key (128B):    {'found: ' + dh_pub_key[:32] + '...' if dh_pub_key else 'NOT FOUND'}")
-    print(f"DH private key (128B):   {'found: ' + dh_priv_key[:32] + '...' if dh_priv_key else 'NOT FOUND'}")
-    print(f"DH shared secret (128B): {'found: ' + dh_shared_secret[:32] + '...' if dh_shared_secret else 'NOT FOUND'}")
+    print(
+        f"\nDH public key (128B):    {'found: ' + dh_pub_key[:32] + '...' if dh_pub_key else 'NOT FOUND'}"
+    )
+    print(
+        f"DH private key (128B):   {'found: ' + dh_priv_key[:32] + '...' if dh_priv_key else 'NOT FOUND'}"
+    )
+    print(
+        f"DH shared secret (128B): {'found: ' + dh_shared_secret[:32] + '...' if dh_shared_secret else 'NOT FOUND'}"
+    )
     print(f"HMAC 48B keys:           {len(hmac_keys_48b)} found")
     print(f"HMAC 48B digests:        {len(hmac_final_48b)} found")
 

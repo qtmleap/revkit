@@ -50,12 +50,18 @@ def check_any(label: str, derived: bytes) -> bool:
         for hmac_k in ALL_HMAC_KEYS:
             combined_eh = enc + hmac_k
             combined_he = hmac_k + enc
-            if len(derived) >= len(combined_eh) and derived[: len(combined_eh)] == combined_eh:
+            if (
+                len(derived) >= len(combined_eh)
+                and derived[: len(combined_eh)] == combined_eh
+            ):
                 msg = f"[MATCH enc+hmac] {label}  enc={enc.hex()} hmac={hmac_k.hex()}"
                 print(msg)
                 found.append(msg)
                 matched = True
-            if len(derived) >= len(combined_he) and derived[: len(combined_he)] == combined_he:
+            if (
+                len(derived) >= len(combined_he)
+                and derived[: len(combined_he)] == combined_he
+            ):
                 msg = f"[MATCH hmac+enc] {label}  hmac={hmac_k.hex()} enc={enc.hex()}"
                 print(msg)
                 found.append(msg)
@@ -198,7 +204,13 @@ def nist_counter_kdf(
     result = b""
     counter = 1
     while len(result) < length:
-        msg = struct.pack(">I", counter) + label + b"\x00" + context + struct.pack(">I", length * 8)
+        msg = (
+            struct.pack(">I", counter)
+            + label
+            + b"\x00"
+            + context
+            + struct.pack(">I", length * 8)
+        )
         result += hmac_mod.new(prf_key, msg, hash_alg).digest()
         counter += 1
     return result[:length]
@@ -343,8 +355,16 @@ for enc in ALL_ENC_KEYS:
 
 # HKDF with padded shared_secret
 for hash_name, hash_alg in HASH_ALGS.items():
-    for info_name, info_val in [("b''", b""), ("b'enc'", b"enc"), ("b'session'", b"session")]:
-        for salt_val, salt_name in [(None, "None"), (b"", "b''"), (b"\x00" * 32, "zeros32")]:
+    for info_name, info_val in [
+        ("b''", b""),
+        ("b'enc'", b"enc"),
+        ("b'session'", b"session"),
+    ]:
+        for salt_val, salt_name in [
+            (None, "None"),
+            (b"", "b''"),
+            (b"\x00" * 32, "zeros32"),
+        ]:
             try:
                 hkdf = HKDF(
                     algorithm=hash_alg,

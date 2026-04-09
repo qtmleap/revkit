@@ -9,6 +9,7 @@ Usage:
     pip install r2pipe
     python analyze_nflxDhDerive.py <path_to_NFWebCrypto_binary>
 """
+
 import sys
 import r2pipe
 import struct
@@ -99,7 +100,9 @@ def analyze(binary_path: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        binary = "/tmp/nfwc/Payload/Argo.app/Frameworks/NFWebCrypto.framework/NFWebCrypto"
+        binary = (
+            "/tmp/nfwc/Payload/Argo.app/Frameworks/NFWebCrypto.framework/NFWebCrypto"
+        )
     else:
         binary = sys.argv[1]
     analyze(binary)

@@ -74,6 +74,7 @@ print()
 
 found = []
 
+
 def check_any_48(label: str, derived: bytes) -> bool:
     for enc_hex in ALL_ENC_UNIQUE:
         enc = bytes.fromhex(enc_hex)
@@ -267,6 +268,7 @@ print()
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+
 def aes_cbc_decrypt(key: bytes, iv: bytes, ct: bytes) -> bytes | None:
     try:
         cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
@@ -274,6 +276,7 @@ def aes_cbc_decrypt(key: bytes, iv: bytes, ct: bytes) -> bytes | None:
         return dec.update(ct) + dec.finalize()
     except Exception:
         return None
+
 
 # 仮説 A: CT(64B) を AES-CBC 復号して enc_key + hmac_key を得る
 # 復号鍵: DH shared secret から直接導出した何かか?
@@ -322,12 +325,18 @@ for key_name, aes_key in aes_keys_to_try:
                     hmac_candidate = pt_unpad[16:]
                     for enc_hex in ALL_ENC_UNIQUE:
                         if bytes.fromhex(enc_hex) == enc_candidate:
-                            print(f"[DECRYPT MATCH enc] AES-CBC key={key_name} {iv_name}")
-                            print(f"  enc={enc_candidate.hex()} hmac={hmac_candidate.hex()}")
+                            print(
+                                f"[DECRYPT MATCH enc] AES-CBC key={key_name} {iv_name}"
+                            )
+                            print(
+                                f"  enc={enc_candidate.hex()} hmac={hmac_candidate.hex()}"
+                            )
                             found.append(f"DECRYPT enc_match: {key_name} {iv_name}")
                     for hmac_hex in ALL_HMAC_UNIQUE:
                         if bytes.fromhex(hmac_hex) == hmac_candidate:
-                            print(f"[DECRYPT MATCH hmac] AES-CBC key={key_name} {iv_name}")
+                            print(
+                                f"[DECRYPT MATCH hmac] AES-CBC key={key_name} {iv_name}"
+                            )
                             found.append(f"DECRYPT hmac_match: {key_name} {iv_name}")
 
         # CT = 48 bytes (仮説 B: IV=response[:16])
@@ -338,7 +347,9 @@ for key_name, aes_key in aes_keys_to_try:
                 pt_unpad = pt2[:-pad_len]
                 for enc_hex in ALL_ENC_UNIQUE:
                     if len(pt_unpad) >= 16 and bytes.fromhex(enc_hex) == pt_unpad[:16]:
-                        print(f"[DECRYPT2 MATCH enc] AES-CBC(48B CT) key={key_name} {iv_name}")
+                        print(
+                            f"[DECRYPT2 MATCH enc] AES-CBC(48B CT) key={key_name} {iv_name}"
+                        )
                         print(f"  pt={pt_unpad.hex()}")
                         found.append(f"DECRYPT2 enc_match: {key_name} {iv_name}")
 
@@ -348,6 +359,7 @@ print("6. appboot response の実際のファイルを探して解析")
 print("=" * 70)
 
 import os, glob
+
 appboot_files = glob.glob("/home/vscode/app/raws/ios/*/raw/*appboot*")
 print(f"appboot files found: {appboot_files}")
 

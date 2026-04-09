@@ -21,10 +21,18 @@ DH_SHARED = bytes.fromhex(keys["dh_shared_secret"])
 ss_int = int(keys["dh_shared_secret"], 16)
 
 # 全 enc_key (post_appboot)
-ENC_POST = [bytes.fromhex(e["key"]) for e in keys["aes_key_history"] if e["phase"] == "post_appboot"]
+ENC_POST = [
+    bytes.fromhex(e["key"])
+    for e in keys["aes_key_history"]
+    if e["phase"] == "post_appboot"
+]
 ENC_UNIQUE = list(dict.fromkeys(k.hex() for k in ENC_POST))
 # 全 hmac_key (post_appboot)
-HMAC_POST = [bytes.fromhex(e["key"]) for e in keys["hmac_key_history"] if e["phase"] == "post_appboot"]
+HMAC_POST = [
+    bytes.fromhex(e["key"])
+    for e in keys["hmac_key_history"]
+    if e["phase"] == "post_appboot"
+]
 HMAC_UNIQUE = list(dict.fromkeys(k.hex() for k in HMAC_POST))
 
 print(f"Target enc_keys  ({len(ENC_UNIQUE)}): {ENC_UNIQUE}")
@@ -159,18 +167,32 @@ print("=" * 70)
 print("HMAC チェーン KDF")
 print("=" * 70)
 
+
 # RFC 5869 HKDF の手動実装 (extract + expand を分けて確認)
 def hkdf_extract(salt: bytes | None, ikm: bytes, hash_name: str) -> bytes:
     """HKDF-Extract"""
-    hash_fn = hashlib.sha256 if hash_name == "SHA256" else hashlib.sha384 if hash_name == "SHA384" else hashlib.sha512
+    hash_fn = (
+        hashlib.sha256
+        if hash_name == "SHA256"
+        else hashlib.sha384
+        if hash_name == "SHA384"
+        else hashlib.sha512
+    )
     hash_len = hash_fn(b"").digest_size
     if salt is None:
         salt = b"\x00" * hash_len
     return hmac_mod.new(salt, ikm, hash_name.lower().replace("sha", "sha")).digest()
 
+
 def hkdf_expand(prk: bytes, info: bytes, length: int, hash_name: str) -> bytes:
     """HKDF-Expand"""
-    hash_fn_name = "sha256" if hash_name == "SHA256" else "sha384" if hash_name == "SHA384" else "sha512"
+    hash_fn_name = (
+        "sha256"
+        if hash_name == "SHA256"
+        else "sha384"
+        if hash_name == "SHA384"
+        else "sha512"
+    )
     result = b""
     t = b""
     counter = 1
@@ -179,6 +201,7 @@ def hkdf_expand(prk: bytes, info: bytes, length: int, hash_name: str) -> bytes:
         result += t
         counter += 1
     return result[:length]
+
 
 # HKDF-Extract ステップの PRK を確認
 for inp_name, inp_val in INPUT_VARIANTS:
@@ -189,7 +212,9 @@ for inp_name, inp_val in INPUT_VARIANTS:
                 # PRK の先頭 16 バイトが enc_key か?
                 for enc_hex in ENC_UNIQUE:
                     if prk[:16] == bytes.fromhex(enc_hex):
-                        print(f"[PRK ENC MATCH] hkdf_extract({inp_name},s={salt_name},h={hash_name})[:16] == {enc_hex[:8]}")
+                        print(
+                            f"[PRK ENC MATCH] hkdf_extract({inp_name},s={salt_name},h={hash_name})[:16] == {enc_hex[:8]}"
+                        )
             except Exception:
                 pass
 

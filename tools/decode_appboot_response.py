@@ -194,7 +194,9 @@ for hex_val, fname in key_33_6_values.items():
                     for enc_hex in ALL_ENC_UNIQUE:
                         if bytes.fromhex(enc_hex) == enc_candidate:
                             print(f"  [MATCH enc] wrap_key={wrap_name}")
-                            print(f"  enc={enc_candidate.hex()} hmac={hmac_candidate.hex()}")
+                            print(
+                                f"  enc={enc_candidate.hex()} hmac={hmac_candidate.hex()}"
+                            )
                     for h_hex in ALL_HMAC_UNIQUE:
                         if bytes.fromhex(h_hex)[:16] == hmac_candidate:
                             print(f"  [MATCH hmac[:16]] wrap_key={wrap_name}")
@@ -205,7 +207,9 @@ for hex_val, fname in key_33_6_values.items():
                     for enc_hex in ALL_ENC_UNIQUE:
                         if bytes.fromhex(enc_hex) == enc_candidate:
                             print(f"  [MATCH enc(48)] wrap_key={wrap_name}")
-                            print(f"  enc={enc_candidate.hex()} hmac={hmac_candidate.hex()}")
+                            print(
+                                f"  enc={enc_candidate.hex()} hmac={hmac_candidate.hex()}"
+                            )
 
         # 仮説 B: CT(64) + HMAC(32)
         ct_64 = data[:64]
@@ -219,8 +223,13 @@ for hex_val, fname in key_33_6_values.items():
                     pt_unpad = pkcs7_unpad(pt)
                     if pt_unpad and 32 <= len(pt_unpad) <= 48:
                         for enc_hex in ALL_ENC_UNIQUE:
-                            if len(pt_unpad) >= 16 and bytes.fromhex(enc_hex) == pt_unpad[:16]:
-                                print(f"  [MATCH enc B] wrap_key={wrap_name} iv={iv_name}")
+                            if (
+                                len(pt_unpad) >= 16
+                                and bytes.fromhex(enc_hex) == pt_unpad[:16]
+                            ):
+                                print(
+                                    f"  [MATCH enc B] wrap_key={wrap_name} iv={iv_name}"
+                                )
                                 print(f"  pt={pt_unpad.hex()}")
 
 print()
@@ -255,7 +264,9 @@ for req_file in appboot_req_files[:5]:
         continue
 
     key33_6 = inner.get(6)
-    print(f"\n{req_file.name}: key33.6 = {key33_6.hex()[:20] if isinstance(key33_6, bytes) else key33_6}... ({len(key33_6) if isinstance(key33_6, bytes) else '?'} bytes)")
+    print(
+        f"\n{req_file.name}: key33.6 = {key33_6.hex()[:20] if isinstance(key33_6, bytes) else key33_6}... ({len(key33_6) if isinstance(key33_6, bytes) else '?'} bytes)"
+    )
 
     # key 33.8 = identity (ESN)
     key33_8 = inner.get(8)
@@ -348,9 +359,26 @@ for num in ["4", "33", "89", "98"]:
 
             # msl_keys.json の DH shared secret + nonces で復号試行
             if isinstance(client_nonce, bytes) and isinstance(server_nonce, bytes):
-                for hash_name, hash_alg in {"SHA-256": hashes.SHA256(), "SHA-384": hashes.SHA384(), "SHA-512": hashes.SHA512()}.items():
-                    for salt in [None, b"", client_nonce, server_nonce, client_nonce + server_nonce]:
-                        for info in [b"", b"enc", b"wrap", b"session", client_nonce, server_nonce]:
+                for hash_name, hash_alg in {
+                    "SHA-256": hashes.SHA256(),
+                    "SHA-384": hashes.SHA384(),
+                    "SHA-512": hashes.SHA512(),
+                }.items():
+                    for salt in [
+                        None,
+                        b"",
+                        client_nonce,
+                        server_nonce,
+                        client_nonce + server_nonce,
+                    ]:
+                        for info in [
+                            b"",
+                            b"enc",
+                            b"wrap",
+                            b"session",
+                            client_nonce,
+                            server_nonce,
+                        ]:
                             try:
                                 hkdf = HKDF(
                                     algorithm=hash_alg,
@@ -369,7 +397,9 @@ for num in ["4", "33", "89", "98"]:
                                             if bytes.fromhex(enc_hex) == pt_unpad[:16]:
                                                 salt_repr = repr(salt)[:10]
                                                 info_repr = repr(info)
-                                                print(f"  [MATCH] HKDF(hash={hash_name},salt={salt_repr},info={info_repr}) wrap_key={wrap_k.hex()}")
+                                                print(
+                                                    f"  [MATCH] HKDF(hash={hash_name},salt={salt_repr},info={info_repr}) wrap_key={wrap_k.hex()}"
+                                                )
                                                 print(f"  pt={pt_unpad.hex()}")
                             except Exception:
                                 pass

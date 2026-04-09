@@ -24,7 +24,9 @@ DH_SHARED = bytes.fromhex(
 
 # ログから得た全 AES-128 鍵 (post_appboot)
 ALL_ENC = [
-    bytes.fromhex("0817065e29e6d1c8668473af9e13b3c2"),  # DH_generate 後 (前回キャッシュ?)
+    bytes.fromhex(
+        "0817065e29e6d1c8668473af9e13b3c2"
+    ),  # DH_generate 後 (前回キャッシュ?)
     bytes.fromhex("97b99f4e88e8e73779aa20ac11877c5d"),  # DH_compute 直後第1世代
     bytes.fromhex("834327638d92f129c9da8a5ab72bca3b"),  # セッション更新後第2世代
 ]
@@ -53,7 +55,9 @@ def check(label: str, derived: bytes) -> bool:
         for hmac_k in ALL_HMAC:
             combined_len = 16 + len(hmac_k)
             if len(derived) >= combined_len and derived[16:combined_len] == hmac_k:
-                msg = f"[FULL MATCH] {label}  enc={enc.hex()[:8]} hmac={hmac_k.hex()[:8]}"
+                msg = (
+                    f"[FULL MATCH] {label}  enc={enc.hex()[:8]} hmac={hmac_k.hex()[:8]}"
+                )
                 print(msg)
                 found.append(msg)
                 return True
@@ -180,8 +184,8 @@ for inp_name, inp_val in INPUT_VARIANTS:
 # 部分列
 for offset in range(len(DH_SHARED) - 15):
     for enc in ALL_ENC:
-        if DH_SHARED[offset:offset+16] == enc:
-            print(f"[MATCH] shared[{offset}:{offset+16}] == enc_key {enc.hex()[:8]}")
+        if DH_SHARED[offset : offset + 16] == enc:
+            print(f"[MATCH] shared[{offset}:{offset + 16}] == enc_key {enc.hex()[:8]}")
 
 print()
 print("=" * 70)
@@ -198,7 +202,9 @@ else:
     for inp_name, inp_val in INPUT_VARIANTS:
         h256 = hashlib.sha256(inp_val).digest()
         h384 = hashlib.sha384(inp_val).digest()
-        print(f"  {inp_name}: sha256[:16]={h256[:16].hex()} sha384[:16]={h384[:16].hex()}")
+        print(
+            f"  {inp_name}: sha256[:16]={h256[:16].hex()} sha384[:16]={h384[:16].hex()}"
+        )
     print(f"  enc_keys: {[k.hex() for k in ALL_ENC]}")
     print()
     print("【最終結論】")

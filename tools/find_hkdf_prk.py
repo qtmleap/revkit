@@ -32,10 +32,16 @@ DH_SHARED = bytes.fromhex(
     "f2cb8911e446313c2cb0567f7de865b3"
 )
 
-HMAC_KEY_AFTER_DH = bytes.fromhex("a4333e99a34eef3663f8e38e217e696949cd3bf57598c5c260fedb8997afa82b")
-AES_256_AFTER = bytes.fromhex("2f227e15497488f3476f4468b4d8cd00986a094f6e613051b79d6ad2d4d8cdc8")
+HMAC_KEY_AFTER_DH = bytes.fromhex(
+    "a4333e99a34eef3663f8e38e217e696949cd3bf57598c5c260fedb8997afa82b"
+)
+AES_256_AFTER = bytes.fromhex(
+    "2f227e15497488f3476f4468b4d8cd00986a094f6e613051b79d6ad2d4d8cdc8"
+)
 TARGET_ENC = bytes.fromhex("97b99f4e88e8e73779aa20ac11877c5d")
-TARGET_HMAC = bytes.fromhex("d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0")
+TARGET_HMAC = bytes.fromhex(
+    "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0"
+)
 
 print(f"DH_SHARED: {DH_SHARED.hex()[:20]}...")
 print(f"HMAC_KEY_AFTER_DH: {HMAC_KEY_AFTER_DH.hex()}")
@@ -65,7 +71,12 @@ print("1. a4333e... を鍵として HMAC → PRK → ENC")
 print("=" * 70)
 
 # a4333e... を使って HKDF
-for info_name, info_val in [("empty", b""), ("01", b"\x01"), ("enc", b"enc"), ("session", b"session")]:
+for info_name, info_val in [
+    ("empty", b""),
+    ("01", b"\x01"),
+    ("enc", b"enc"),
+    ("session", b"session"),
+]:
     for out_len in [16, 32, 48, 64]:
         try:
             # a4333e... を PRK として HKDFExpand
@@ -89,15 +100,18 @@ print("=" * 70)
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+
 def aes_ecb_encrypt(key: bytes, data: bytes) -> bytes:
     cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
     enc = cipher.encryptor()
     return enc.update(data) + enc.finalize()
 
+
 def aes_ecb_decrypt(key: bytes, data: bytes) -> bytes:
     cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
     dec = cipher.decryptor()
     return dec.update(data) + dec.finalize()
+
 
 # 2f227e... (256-bit key) でデータを AES-ECB 暗号化して enc_key を得るか?
 # ECB は 16 bytes ブロック → 出力[:16] が enc_key?
@@ -158,7 +172,9 @@ for res_file in sorted(RAWS_DIR.glob("res_*appboot*.bin"))[:10]:
             (AES_256_AFTER[16:32], "2f227e[16:32]"),
         ]:
             try:
-                cipher = Cipher(algorithms.AES(wrap_key), modes.CBC(iv), backend=default_backend())
+                cipher = Cipher(
+                    algorithms.AES(wrap_key), modes.CBC(iv), backend=default_backend()
+                )
                 dec = cipher.decryptor()
                 pt = dec.update(ct_48) + dec.finalize()
                 pad_len = pt[-1]
@@ -176,7 +192,11 @@ for res_file in sorted(RAWS_DIR.glob("res_*appboot*.bin"))[:10]:
             (AES_256_AFTER[:32], "2f227e[:32]"),
         ]:
             try:
-                cipher = Cipher(algorithms.AES(wrap_key_256), modes.CBC(iv), backend=default_backend())
+                cipher = Cipher(
+                    algorithms.AES(wrap_key_256),
+                    modes.CBC(iv),
+                    backend=default_backend(),
+                )
                 dec = cipher.decryptor()
                 pt = dec.update(ct_48) + dec.finalize()
                 pad_len = pt[-1]
@@ -224,7 +244,9 @@ for res_file in sorted(RAWS_DIR.glob("res_*appboot*.bin"))[:10]:
             iv = k6[:16]
             ct_48 = k6[16:64]
             try:
-                cipher = Cipher(algorithms.AES(wrap_key), modes.CBC(iv), backend=default_backend())
+                cipher = Cipher(
+                    algorithms.AES(wrap_key), modes.CBC(iv), backend=default_backend()
+                )
                 dec = cipher.decryptor()
                 pt = dec.update(ct_48) + dec.finalize()
                 pad_len = pt[-1]
@@ -265,7 +287,9 @@ print("=" * 70)
 # 別の可能性: DH_generate_key 後に server へ appboot リクエストを送信する前に
 # 前回の master_token を検証するため 0817 を使う?
 
-print("0817... は DH_generate_key 後, DH_compute_key 前の鍵 = 前回セッションのキャッシュ")
+print(
+    "0817... は DH_generate_key 後, DH_compute_key 前の鍵 = 前回セッションのキャッシュ"
+)
 print("97b99f4e... は DH_compute_key 後の最初の新しいセッション鍵")
 print()
 print("正しいペアリング確認済み:")
@@ -298,7 +322,10 @@ for info_name, info_val in [("empty", b""), ("01", b"\x01"), ("enc", b"enc")]:
                 info=info_val,
             )
             derived = hkdf_expand.derive(prk_test)
-            check(f"HKDFExpand(HMAC-SHA256(a4333e,DH_SHARED),i={info_name},L={L})", derived)
+            check(
+                f"HKDFExpand(HMAC-SHA256(a4333e,DH_SHARED),i={info_name},L={L})",
+                derived,
+            )
         except Exception:
             pass
 
@@ -314,7 +341,10 @@ for info_name, info_val in [("empty", b""), ("01", b"\x01"), ("enc", b"enc")]:
                 info=info_val,
             )
             derived = hkdf_expand.derive(prk_test2)
-            check(f"HKDFExpand(HMAC-SHA256(DH_SHARED,a4333e),i={info_name},L={L})", derived)
+            check(
+                f"HKDFExpand(HMAC-SHA256(DH_SHARED,a4333e),i={info_name},L={L})",
+                derived,
+            )
         except Exception:
             pass
 

@@ -9,6 +9,7 @@ Usage:
     pip install lief capstone
     python decompile_nflxDhDerive.py [<binary_path>]
 """
+
 import sys
 
 try:
@@ -19,7 +20,9 @@ except ImportError:
     sys.exit(1)
 
 
-BINARY_DEFAULT = "/tmp/nfwc/Payload/Argo.app/Frameworks/NFWebCrypto.framework/NFWebCrypto"
+BINARY_DEFAULT = (
+    "/tmp/nfwc/Payload/Argo.app/Frameworks/NFWebCrypto.framework/NFWebCrypto"
+)
 
 # Key function offsets
 NFLX_DH_DERIVE = 0xFEEC
@@ -303,8 +306,8 @@ def main():
             print(f"  0x{insn.address:08x}:  {insn.mnemonic}\t{insn.op_str}")
 
         # Dump static data
-        psk = data[0x1AC8F5:0x1AC8F5 + 16]
-        nonce = data[0x1AC905:0x1AC905 + 16]
+        psk = data[0x1AC8F5 : 0x1AC8F5 + 16]
+        nonce = data[0x1AC905 : 0x1AC905 + 16]
         print(f"\n--- Static PSK (salt) @ 0x1AC8F5 ---")
         print(f"  {psk.hex()}")
         print(f"\n--- Static nonce (info) @ 0x1AC905 ---")
