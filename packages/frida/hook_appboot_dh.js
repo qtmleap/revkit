@@ -191,7 +191,8 @@ if (fn.DH_generate_key) {
                     var pBuf = Memory.alloc(pBytes);
                     BN_bn2bin(p, pBuf);
                     g_dhP = hex(pBuf, pBytes);
-                    console.log("[DH] p (" + pBytes + "B) = " + g_dhP.substring(0, 16) + "...");
+                    // Log the full DH prime p (128B = 1024-bit)
+                    console.log("[DH] p (" + pBytes + "B) = " + g_dhP);
                 }
 
                 if (!g.isNull() && BN_num_bits && BN_bn2bin) {
@@ -258,17 +259,23 @@ if (fn.BN_mod_exp) {
                     console.log("  exp:  " + expBits + " bits");
                     console.log("  mod:  " + mBits + " bits");
 
-                    // Dump base (first 32 bytes)
+                    // Dump base and exponent (full bytes)
                     if (BN_bn2bin) {
                         var aBytes = (aBits + 7) >> 3;
                         var aBuf = Memory.alloc(aBytes);
                         BN_bn2bin(this.a, aBuf);
-                        console.log("  base hex: " + hex(aBuf, Math.min(aBytes, 32)) + (aBytes > 32 ? "..." : ""));
+                        console.log("  base hex: " + hex(aBuf, aBytes));
 
                         var expBytes = (expBits + 7) >> 3;
                         var expBuf = Memory.alloc(expBytes);
                         BN_bn2bin(this.p_exp, expBuf);
-                        console.log("  exp hex:  " + hex(expBuf, Math.min(expBytes, 32)) + (expBytes > 32 ? "..." : ""));
+                        console.log("  exp hex:  " + hex(expBuf, expBytes));
+
+                        // Also dump the full modulus (DH prime p, 128B)
+                        var mBytes = (mBits + 7) >> 3;
+                        var mBuf = Memory.alloc(mBytes);
+                        BN_bn2bin(this.m, mBuf);
+                        console.log("  mod hex:  " + hex(mBuf, mBytes));
                     }
                 }
             }
@@ -280,7 +287,7 @@ if (fn.BN_mod_exp) {
                 var rBuf = Memory.alloc(rBytes);
                 BN_bn2bin(this.r, rBuf);
                 var resultHex = hex(rBuf, rBytes);
-                console.log("[BN_mod_exp] result (" + rBytes + "B) = " + resultHex.substring(0, 64) + (rBytes > 32 ? "..." : ""));
+                console.log("[BN_mod_exp] result (" + rBytes + "B) = " + resultHex);
 
                 // Store as potential DH shared secret
                 g_dhSharedSecret = resultHex;
@@ -432,7 +439,7 @@ function computeViaBnModExp() {
     BN_bn2bin(rBN, rBuf);
     var result = new Uint8Array(rBuf.readByteArray(rLen));
 
-    console.log("[+] BN_mod_exp result (" + rLen + "B) = " + bytesToHex(result).substring(0, 64) + "...");
+    console.log("[+] BN_mod_exp result (" + rLen + "B) = " + bytesToHex(result));
 
     BN_free(privBN); BN_free(pubBN); BN_free(pBN); BN_free(rBN);
     if (BN_CTX_free_fn && !ctx.isNull()) BN_CTX_free_fn(ctx);
