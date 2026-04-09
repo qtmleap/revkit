@@ -16,15 +16,26 @@ HMAC-SHA384(TFIT_KEY_48B, 0x00 || DH_SHARED_SECRET_128B) → 48 bytes
 
 | パラメータ | サイズ | 説明 |
 |-----------|--------|------|
-| TFIT_KEY | 48 bytes | TFIT ホワイトボックス AES チェーンの出力。セッション毎に異なる |
+| 48B_KEY | 48 bytes | `SHA384(session_bind[:16])` — Phase 3 KDF の中間値から導出 |
 | DH_SHARED_SECRET | 128 bytes | `DH_compute_key()` の出力 (1024-bit DH) |
 | 0x00 prefix | 1 byte | 固定プレフィックスバイト |
+
+### 48B 鍵の導出 (解明済み)
+
+```
+session_check = HMAC-SHA256(PSK, enc_key_0 || sign_key_0)
+session_bind  = HMAC-SHA256(session_check, nonce)
+48B_KEY       = SHA384(session_bind[:16])
+```
+
+保存済みの enc_key_0/sign_key_0 + PSK + nonce (全て既知) から純粋に Python で計算可能。
+TFIT ホワイトボックスは関与しない。`nflxDhDerive` (0x0FEEC) 内部で `SHA384` (0x10174) が呼ばれる。
 
 ### 重要な発見
 
 1. **HKDF は存在しない**: NFWebCrypto.framework には `HKDF`, `HKDF_extract`, `HKDF_expand` のいずれもエクスポートされていない
 2. **HMAC-SHA384**: Phase 3 KDF (HMAC-SHA256) とは異なるハッシュアルゴリズムを使用
-3. **TFIT キーはセッション固有**: Irdeto TFIT ホワイトボックス AES チェーン (100+ iterations) によって生成される
+3. **48B 鍵 = SHA384(session_bind[:16])**: TFIT ではなく、Phase 3 KDF の中間値から導出
 4. **0x00 プレフィックス**: 共有秘密の前に `0x00` が付加される (data = 129 bytes)
 
 ## 検証済みテストベクタ
@@ -55,9 +66,13 @@ sign_key   = 794e627118ad213532399d2ecd0c85f9
 ```mermaid
 %%{init: {'theme': 'dark'}}%%
 graph TD
-    A["TFIT Whitebox AES Chain<br/>(100+ iterations, AES-256)"] --> B["TFIT_KEY (48B)"]
+    PSK_N["PSK + nonce<br/>(バイナリ埋め込み)"] --> KDF["Phase 3 KDF<br/>HMAC-SHA256 Chain"]
+    STORED["保存済み enc_key_0/sign_key_0"] --> KDF
+    KDF --> SB["session_bind[:16]"]
+    SB --> SHA["SHA384"]
+    SHA --> B["48B_KEY (48B)"]
     C["DH Key Exchange<br/>(1024-bit)"] --> D["DH_SHARED_SECRET (128B)"]
-    B --> E["HMAC-SHA384(TFIT_KEY, 0x00 || DH_SHARED)"]
+    B --> E["HMAC-SHA384(48B_KEY, 0x00 || DH_SHARED)"]
     D --> E
     E --> F["enc_key_0 (16B)"]
     E --> G["sign_key_0 (32B)"]
@@ -82,23 +97,29 @@ graph TD
 | 01:08:59.032 | Phase 3 KDF | 新鍵で即座に更新 |
 | 01:08:59.052 | MSL 通信開始 | 更新済み enc_key_1 で暗号化 |
 
-## 未解明事項
+## 解明済み事項 (2026-04-09 更新)
 
-### TFIT 48B キーの生成メカニズム
+### 48B 鍵の生成メカニズム — 完全解明
 
-- TFIT キーは AES-256 ホワイトボックスチェーン (Irdeto) の出力
-- セッション毎に異なる値を生成
-- TFIT 内部の入力が何か（乱数？デバイス固有値？）は未特定
-- 48B キーは `AES_set_*_key` フックでは捕捉不可能（暗号化出力として生成される）
-- **Tweak の HMAC_Init_ex フックで毎セッション取得可能**
+```
+session_check = HMAC-SHA256(PSK, enc_key_0 || sign_key_0)
+session_bind  = HMAC-SHA256(session_check, nonce)
+48B_KEY       = SHA384(session_bind[:16])
+```
 
-### 純粋 Python シミュレーションの制限
+- **TFIT は関与しない**: 48B 鍵は Phase 3 KDF の中間値 (session_bind) の SHA384 ハッシュ
+- **純粋 Python で計算可能**: 保存済み enc_key_0/sign_key_0 + PSK + nonce から導出
+- 静的解析 (`nflxDhDerive` at 0x0FEEC) でも SHA384 呼び出し (0x10174) を確認
+- `AppleNativeKey::getBytes()` (0xD7E0) で XOR デコードされた鍵バイトが SHA384 の入力
 
-現時点では、TFIT 48B キーの取得に以下のいずれかが必要:
+### 残りの未解明事項
 
-1. **Tweak フック** (推奨): AppbootKDF Tweak が HMAC_Init_ex で 48B キーをキャプチャ
-2. **Frida フック**: hook_phase2_kdf.js で同等のキャプチャが可能
-3. **TFIT リバースエンジニアリング** (未達): ホワイトボックス内部の完全な解析
+- **key 33.6 の TFIT エンコード**: DH 公開鍵 (128B) → 352B/144B の変換ロジック
+  - TFIT テーブル (199KB) の場所は特定済み (0x1ACF28 - 0x1DEBA8)
+  - `genModelGroupKeys` (0x1DB74) が `_TFIT_wbaes_ecb_encrypt_iAES11` を使用
+  - Unicorn エミュレーションで再現を試みる予定
+- **bootstrap_key の由来**: 未調査
+- **初回セッションの enc_key_0/sign_key_0**: 最初の 1 回はどこから来るか
 
 ## 関連ファイル
 
