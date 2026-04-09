@@ -493,6 +493,11 @@ key 34 (entity_auth_data): {
 }
 ```
 
+### deviceIdToken / devicetoken — 同一トークンの二重表現
+
+> **重要**: CBOR フィールド "apphmac" と "devicetoken" は同一の `x-netflix-deviceidtoken`
+> HTTP ヘッダ値から派生する。ストレージキーも同じ `DEVICE_ID_TOKEN`。
+
 ### deviceIdToken (CBOR フィールド名: "apphmac")
 
 | 項目 | 値 |
@@ -530,20 +535,22 @@ response.allHeaderFields[@"x-netflix-deviceidtoken"]
 | 項目 | 値 |
 |------|-----|
 | サイズ | 216B (protobuf) |
-| 生成元 | DRM/CDM 層 (Secure Enclave または FairPlay プロビジョニング) |
-| 取得方式 | **HTTP ではない** — デバイスの DRM 層に永続化された値 |
-| protobuf 構造 | field 1: varint (ID), field 2: 188B opaque payload |
-| 可変性 | セッション可変 |
-| Python 再現 | **不可** — DRM 層に焼き付いた値。外部から生成・取得する手段なし |
-| 取得方法 | Tweak でキャプチャ (`FpsMgkAppIdAuthData` コンストラクタ x5、または appboot blob 末尾) |
+| 生成元 | **deviceIdToken と同一ソース** — `x-netflix-deviceidtoken` ヘッダの Base64 デコード |
+| 永続化 | `NFSharedStore.defaultContainer` キー `"DEVICE_ID_TOKEN"` (deviceIdToken と同一) |
+| 変換 | `Base64.decode(deviceIdToken文字列)` → 216B 生バイト |
+| Python 再現 | **可** — `base64.b64decode(x_netflix_deviceidtoken_header)` |
 
-> **永続性の検証結果 (2026-04-09):**
-> iOS Keychain の Netflix 全エントリ (18件) を削除 + アプリデータ全削除を行っても、
-> 同一の devicetoken (216B) と deviceIdToken が再び使用された。
-> `getDeviceTokensWithCallback:` コールバックも `getNRMCookieWithESN:` も発火しなかった。
-> これらのトークンは **Keychain よりも深い層** (Secure Enclave、CDM 内部ストレージ、
-> または FairPlay デバイスプロビジョニング) に永続化されていると結論。
-> HTTP エンドポイントも存在しない (mitmproxy ログで確認済み)。
+**CBOR シリアライズ時の変換** (`getAuthData` at 0x284bc):
+```
+self._deviceIdToken (Base64 NSString)
+  → CBOR "apphmac":     UTF8 bytes としてそのまま格納
+  → CBOR "devicetoken":  Base64.decode() → 216B raw bytes として格納
+```
+
+> **2026-04-09 最終確認:**
+> devicetoken と deviceIdToken は同一の `DEVICE_ID_TOKEN` ストレージ値の異なる表現。
+> Keychain 削除後も残ったのは NFSharedStore (App Group コンテナ) に保存されていたため。
+> CDM/Secure Enclave は関与しない。
 
 ### 用途
 
@@ -562,20 +569,21 @@ Keychain クリア後のフレッシュ DH セッションで `SHA384(session_bi
 ### Python 実装での扱い
 
 ```python
-# ios_client.py — deviceIdToken はサーバーから自動取得可能
+import base64
+
+# ios_client.py — ESN のみ必要。トークンはサーバーから自動取得
 client = iOSMslClient(
-    esn="NFAPPL-02-IPHONE9=1-...",          # Tweak でキャプチャ (1回、永続)
-    device_token=b"...(216B protobuf)...",   # Tweak でキャプチャ (CBOR "devicetoken")
-    device_id_token=None,                    # 初回は None (サーバーが発行)
+    esn="NFAPPL-02-IPHONE9=1-...",   # Tweak でキャプチャ (1回、永続)
 )
 
-# 1. 初回 appboot: device_id_token=None で送信
-# 2. レスポンスヘッダ x-netflix-deviceidtoken から取得
-# 3. 以降のリクエストに含める
-response = client.appboot()
-client.device_id_token = response.headers["x-netflix-deviceidtoken"]
+# 1. 初回 appboot: deviceIdToken=None / devicetoken=None で送信
+# 2. レスポンスヘッダ x-netflix-deviceidtoken から Base64 文字列を取得
+token_b64 = response.headers["x-netflix-deviceidtoken"]
+
+# 3. 両方の CBOR フィールドを同一ソースから生成
+client.device_id_token = token_b64.encode("utf-8")         # CBOR "apphmac"
+client.device_token = base64.b64decode(token_b64)           # CBOR "devicetoken" (216B)
 ```
 
-> **deviceIdToken は Python 単体で取得可能。** 初回 appboot レスポンスのヘッダから取得し、
-> 以降のリクエストで再利用する。Tweak でのキャプチャは不要。
-> devicetoken (216B NRM protobuf) のみ Tweak キャプチャが必要。
+> **全トークンが Python 単体で取得可能。Tweak でのキャプチャは ESN のみ。**
+> deviceIdToken も devicetoken も同一の `x-netflix-deviceidtoken` ヘッダから派生する。

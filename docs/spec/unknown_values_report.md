@@ -316,7 +316,7 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 | 値 | 固定/可変 | 再利用 | 状態 | 備考 |
 |----|----------|--------|------|------|
 | **apphmac** (32B) | サーバー発行 | **長期再利用可** | **完全解決** | サーバーが `x-netflix-deviceidtoken` ヘッダで配信。初回は nil、レスポンスから取得。Python 単体で可 |
-| **devicetoken** (216B) | DRM 層で永続 | **長期再利用可** | **解決: DRM トークン** | CDM/FairPlay 由来。Keychain 削除後も不変 |
+| **devicetoken** (216B) | サーバー発行 | **長期再利用可** | **完全解決** | deviceIdToken の Base64 デコード。同一の `x-netflix-deviceidtoken` ヘッダから派生。Python 単体で可 |
 | ~~**appboot sign key**~~ | — | — | **解決** | Keychain キャッシュ。初回は sign_key_1 で署名 |
 
 > **結論 (2026-04-09 最終):**
@@ -343,7 +343,8 @@ appboot 時の HMAC 呼び出し順序と使用鍵:
 > key 30: "MGK_APPID"            ← entity auth scheme 名
 > ```
 >
-> **Python 実装に必要な値:**
-> - **計算可能**: MGK, Phase 3 KDF, DH, Phase 2 KDF, 署名検証鍵, deviceIdToken (全てバイナリ定数+ESN+サーバー応答)
-> - **1回キャプチャ**: ESN (デバイス固有、永続), devicetoken (216B DRM トークン)
-> - **ESN + devicetoken の 2 つをパラメータとして渡せば、Python で appboot → MSL 認証が実行可能**
+>> **Python 実装に必要な値:**
+> - **計算可能**: MGK, Phase 3 KDF, DH, Phase 2 KDF, 署名検証鍵 (全てバイナリ定数+ESN)
+> - **サーバー取得**: deviceIdToken + devicetoken (同一の `x-netflix-deviceidtoken` ヘッダから派生)
+> - **1回キャプチャ**: ESN (デバイス固有、永続)
+> - **ESN のみをパラメータとして渡せば、Python で appboot → MSL 認証が実行可能**
