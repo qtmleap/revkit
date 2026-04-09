@@ -7,6 +7,12 @@
 
 ## 1. 鍵の全体関係
 
+> **実行順序**: Phase 0 → Phase 3 → Phase 1 → Phase 2 → Phase 4 → Phase 5
+>
+> Phase 番号は MSL 仕様上の論理的な分類であり、実行順とは一致しない。
+> Phase 3 (KDF) が Phase 1-2 (DH 鍵交換) より**先に**実行され、
+> session_bind を Phase 2 の入力として渡す。
+
 ### Phase 0: MGK Generation (Resolved)
 
 ```mermaid
