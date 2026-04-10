@@ -1,4 +1,4 @@
-# appboot リクエストエミュレータ — 進捗と課題
+# appboot → MSL エミュレータ — 進捗と課題
 
 作成日: 2026-04-09
 更新日: 2026-04-10
@@ -9,165 +9,198 @@
 
 ```mermaid
 flowchart TD
-    START([Python appboot]) --> CAPTURE["mitmproxy で実機の appboot<br/>リクエスト (msg1) をキャプチャ"]
+    CAPTURE["Tweak: DH 秘密鍵キャプチャ<br/>(AppbootKeyExtract)"] --> SAVE["msl_keys_TIMESTAMP.json"]
+    PROXY["mitmproxy: appboot req/res<br/>同時キャプチャ"] --> PAIR["req_N + res_N"]
 
-    CAPTURE --> REPLAY["キャプチャした msg1 を<br/>そのまま POST appboot.netflix.com"]
+    SAVE --> SESSION["同期セッション<br/>完全セット"]
+    PAIR --> SESSION
 
-    REPLAY --> RESP["appboot レスポンス<br/>CBOR {33: key_response, 16: sig, 32: header}"]
-    RESP --> EXTRACT_IDT["x-netflix-deviceidtoken ヘッダ取得"]
-    RESP --> EXTRACT_KRD["key_response_data パース<br/>server_scheme_data + server_nonce"]
+    SESSION --> PHASE2["Python: Phase 2 KDF<br/>DH shared → session keys"]
+    PHASE2 --> VERIFY{"captured session_enc_key<br/>と一致?"}
+    VERIFY -->|"Yes ✅"| MSL["MSL 暗号化リクエスト構築<br/>(header + payload + sig)"]
+    VERIFY -->|"No"| FAIL
 
-    EXTRACT_KRD --> PHASE2["Phase 2: DH 共有秘密計算<br/>→ HMAC-SHA384 → セッション鍵"]
-    PHASE2 --> MSL["MSL 暗号化通信"]
+    MSL --> POST["POST manifest エンドポイント"]
+    POST --> CURRENT["現在地: ec=1 パースエラー<br/>(payload 中身の問題と推定)"]
+
+    CURRENT --> NEXT["次ステップ: 同セッションの<br/>manifest req をキャプチャして<br/>構造を再現"]
 
     style CAPTURE fill:#f39c12,stroke:#e67e22,color:#fff
-    style REPLAY fill:#2ecc71,stroke:#27ae60,color:#fff
-    style RESP fill:#2ecc71,stroke:#27ae60,color:#fff
+    style PROXY fill:#f39c12,stroke:#e67e22,color:#fff
     style PHASE2 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style VERIFY fill:#3498db,stroke:#2980b9,color:#fff
     style MSL fill:#2ecc71,stroke:#27ae60,color:#fff
+    style POST fill:#2ecc71,stroke:#27ae60,color:#fff
+    style CURRENT fill:#e67e22,stroke:#d35400,color:#fff
+    style NEXT fill:#9b59b6,stroke:#8e44ad,color:#fff
 ```
 
-## 2. 結論
+---
 
-### Python 単体での appboot は不可能
+## 2. 完全に動作するもの
 
-以下の暗号処理が全て **TEE (Trusted Execution Environment / Secure Enclave)** 内で実行される:
+### 2.1 暗号導出チェーン (全て検証済み)
 
-| 処理 | 関数 | TEE 依存 |
-|------|------|----------|
-| scheme_data の DH 公開鍵暗号化 | `AppleTeeApiCryptoShim::aesecbenc` (0xa24c) | ✅ |
-| apphmac (32B) 計算 | `AppleTeeApiCryptoShim::hmac` (0x990c) | ✅ |
-| DH 鍵ペア生成 | `AppleTeeApiCryptoShim::dhKeyGen` (0xa35c) | ✅ |
-| DH 共有秘密 → セッション鍵導出 | `AppleTeeApiCryptoShim::nflxDhDerive` (0xa524) | ✅ |
+| Phase | 処理 | Python 実装 | 検証 |
+|-------|------|-------------|------|
+| 0 | TFIT MGK (SHA384(ESN) → WB-AES) | `emulate_tfit.py` | ✅ ライブ値と完全一致 |
+| 3 | KDF チェーン (6段 HMAC-SHA256) | `crypto.kdf_renew()` | ✅ 13/13 テスト PASS |
+| DH | p/g + 鍵生成 + 共有秘密 | `crypto.compute_dh_shared_secret()` | ✅ ラウンドトリップ |
+| 2 | HMAC-SHA384(48B, 0x00‖DH) | `crypto.derive_initial_session_keys()` | ✅ ライブ値と完全一致 |
 
-TEE 内の鍵はデバイスの Secure Enclave にハードウェア保護されており、ソフトウェアで再現できない。
-Unicorn TFIT エミュレーションの出力はサーバーに受理されない (ec=1 "Error decrypting data with cryptex")。
-
-### 動作するアプローチ: mitmproxy キャプチャ + リプレイ
-
+**検証データ (2026-04-10T06:13 UTC セッション):**
 ```
-実機 (Netflix iOS) ──→ mitmproxy ──→ appboot.netflix.com
-                          │
-                    msg1 バイト列を保存
-                          │
-                          ▼
-                    Python でリプレイ
-                    → CBOR レスポンス取得
-                    → DH 共有秘密 → セッション鍵
-                    → MSL 暗号化通信
+MGK:              enc_key_0=0817065e... sign_key_0=91f752f7...
+DH shared (keys): 51571f60c2e451894bd0d0ae6e13e7cf... (captured)
+DH shared (py):   51571f60c2e451894bd0d0ae6e13e7cf... (computed) ✅
+session_enc_key:  2f31028c2fa6387810076a984c1ff47b (both) ✅
+session_hmac_key: a73c996991f7f02fd0bfe3322d0cee07... (both) ✅
 ```
 
-**検証済み:**
-- mitmproxy キャプチャの msg1 リプレイ → ★ SUCCESS (CBOR レスポンス返却)
-- msg2 (payload chunk) は不要 — msg1 のみで成功
-- リプレイ保護なし (4/8 キャプチャが 4/10 でも成功)
+### 2.2 Netflix カスタム CBOR
 
-### 残る課題: セッション鍵の取得
+| 機能 | 実装 | 検証 |
+|------|------|------|
+| 8 バイト uint64 キーエンコード | `nf_cbor_encode()` | ✅ |
+| tag(55799) トップレベル付与 | `nf_cbor_encode(_top=True)` | ✅ |
+| キーソート (str 先/int 降順) | 同上 | ✅ |
+| entity_auth_data byte-for-byte | 467B 完全一致 | ✅ |
+| manifest msg1 byte-for-byte | 1730B 完全一致 | ✅ |
 
-**DH 鍵生成も TEE 内で実行される** (`AppleTeeApiCryptoShim::dhKeyGen`)。
-OpenSSL の `DH_generate_key` は呼ばれず、Tweak フックでは捕捉できない。
+### 2.3 リプレイ動作確認
 
-ただし以前の Frida セッション (`raws/msl_keys.json`) に DH 秘密鍵 + 共有秘密が保存されており、
-Phase 2 KDF からセッション鍵を導出 → ライブキャプチャ値と**完全一致**を確認済み。
+| 操作 | 結果 |
+|------|------|
+| appboot req_212 リプレイ | ✅ HTTP 200 CBOR レスポンス |
+| 4/8 キャプチャのリプレイ (4/10 実行) | ✅ 成功 (リプレイ保護なし) |
+| msg2 (payload chunk) 省略 | ✅ msg1 のみで成功 |
+| manifest リクエストのリプレイ | ❌ HTTP 400 (セッション期限切れ) |
 
-**manifest リクエストの課題:**
-- appboot はリプレイ可能 (4/8 キャプチャが 4/10 でも成功)
-- manifest はリプレイ不可 (HTTP 400 — セッション期限切れ)
-- manifest には**ライブセッションの master token + session keys** が必要
-- Python でセッション鍵を導出するには DH 秘密鍵が必要 → TEE 依存
+---
 
-**実現可能なアプローチ:**
-1. **Frida attach** で `AppleTeeApiCryptoShim::dhKeyGen` の返り値をフック → DH 公開鍵/秘密鍵キャプチャ
-2. 同時に mitmproxy で appboot リクエストをキャプチャ
-3. appboot リプレイ → server DH pub → DH shared secret → セッション鍵
-4. セッション鍵 + master token で manifest リクエスト構築
+## 3. 同期セッションのキャプチャ手順
 
-**tools/test_msl_manifest.py で確認済み:**
-- appboot リプレイ → server DH pub 抽出 → DH shared secret → セッション鍵 ✅
-- AES-CBC 暗号化 + HMAC 署名 → manifest CBOR 構築 → POST → HTTP 200 ✅
-- errorcode=3 "master token signature verification failed" — セッション鍵の不一致 (古い DH 鍵使用のため)
-
-## 3. 実装済みコンポーネント
-
-| # | コンポーネント | 状態 |
-|---|--------------|------|
-| 1 | mitmproxy キャプチャアドオン | ✅ 動作中 |
-| 2 | msg1 リプレイ → CBOR レスポンス取得 | ✅ 検証済み |
-| 3 | Netflix カスタム CBOR エンコーダ/デコーダ | ✅ |
-| 4 | Phase 3 KDF | ✅ 13/13 テスト PASS |
-| 5 | Phase 2 KDF (DH → セッション鍵) | ✅ テストベクトル一致 |
-| 6 | scheme_data 352B CBOR 構造解析 | ✅ 完全解明 |
-| 7 | entity_auth_data CBOR 構造解析 | ✅ 完全解明 |
-| 8 | TFIT MGK エミュレーション | ✅ (サーバー検証は不可) |
-
-## 4. TEE 依存で Python 再現不可なもの
-
-| 処理 | バイナリ関数 | 理由 |
-|------|------------|------|
-| TFIT-WB-AES 暗号化 (scheme_data) | `aesecbenc` (0xa24c) | Sealed key in TEE |
-| apphmac 計算 | `hmac` (0x990c) | Sealed AIK in TEE |
-| DH 鍵生成 | `dhKeyGen` (0xa35c) | TEE 内で鍵ペア生成 |
-| DH 共有秘密導出 | `nflxDhDerive` (0xa524) | TEE 内で HMAC-SHA384 |
-
-**AIK バイト** `38b2030dd55e3367290213ca0d16ee079524ccd24fb7221a52145fb6de016fd8`
-(Base64: `OLIDDdVeM2cpAhPKDRbuB5UkzNJPtyIaUhRftt4Bb9g=`) はバイナリに存在するが、
-TEE に importKey で sealed された後はデバイス固有の変換を受ける。
-
-## 5. 実行手順
-
-### Step 1: mitmproxy でキャプチャ
+### Step 1: クリーン状態にする
 
 ```bash
-# mitmproxy 起動 (既に動作中)
-uv run mitmdump --listen-port 9080 --set block_global=false --ssl-insecure \
-    -s packages/mitmproxy/netflix_ios_capture.py
+# Netflix Keychain + NFSharedStore + アプリデータを削除
+# → 新しい appboot が実行される
+ssh root@device 'killall Argo; clear_caches...; open com.netflix.Netflix'
 ```
 
-### Step 2: 実機で Netflix を操作 → appboot 発生
+### Step 2: Tweak + mitmproxy で同時キャプチャ
 
-```bash
-# キャプチャ確認
-ls raws/ios/*/raw/req_*_appboot_*.bin
+- **AppbootKeyExtract Tweak** → `msl_keys.json` に DH priv/pub/shared を記録
+- **mitmproxy** → `raws/ios/YYYYMMDD/raw/req_N_appboot_*.bin` / `res_N_*.bin`
+
+### Step 3: 3 点セットを保存
+
+```
+raws/ios/captures/
+  ├── msl_keys_TIMESTAMP.json        # Tweak 出力
+  ├── appboot_req_TIMESTAMP.bin       # mitmproxy req
+  └── (res は raws/ios/YYYYMMDD/raw/)
 ```
 
-### Step 3: Python でリプレイ
+### Step 4: Python で検証
 
 ```python
-import requests, cbor2
+# Load synchronized session
+keys = json.load(open("raws/ios/captures/msl_keys_...json"))
+res = cbor2.loads(open("raws/ios/20260410/raw/res_212_...bin", "rb").read())
 
-msg1 = open("raws/ios/20260408/raw/req_1351_appboot_*.bin", "rb").read()
-resp = requests.post(
-    "https://appboot.netflix.com/appboot/NFAPPL-02-IPHONE9=1-",
-    params={"keyVersion": "1"}, data=msg1, verify=False,
-)
-response_cbor = cbor2.loads(resp.content)
-device_id_token = resp.headers.get("x-netflix-deviceidtoken")
+# Extract server DH pub from res
+server_pub = cbor2.loads(res[33])[23][31][53][1:]
+
+# Derive session keys from DH shared
+dh_shared = NetflixCrypto.compute_dh_shared_secret(server_pub, dh_priv)
+session_keys = NetflixCrypto.derive_full_key_chain(MGK_ENC, MGK_SIGN, dh_shared)
+
+# Verify match
+assert session_keys.enc_key.hex() == keys["session_enc_key"]
 ```
 
-### Step 4: DH 共有秘密 → セッション鍵 (要 DH 秘密鍵)
+---
 
-```python
-# Tweak でキャプチャした DH 秘密鍵が必要
-dh_shared = NetflixCrypto.compute_dh_shared_secret(server_pub, client_priv)
-session_keys = NetflixCrypto.derive_full_key_chain(enc_key_0, sign_key_0, dh_shared)
+## 4. 現在の壁: MSL manifest リクエスト
+
+### 4.1 テスト結果
+
+`tools/test_msl_manifest.py` で manifest リクエストを構築:
+
+1. appboot リプレイ → server 新 DH pub 取得 → **新** session keys 導出
+2. manifest JSON を AES-CBC 暗号化 → HMAC 署名
+3. CBOR msg1 組立 → POST
+4. **結果: ec=1 "Error parsing MSL encodable"**
+
+### 4.2 確認済み事項
+
+- ✅ msg1 CBOR バイトは実キャプチャと一致する (byte-for-byte)
+- ✅ 署名対象は `HMAC(sign_key, payload_chunk_bytes)` (key 16 が key 33 を署名)
+- ✅ header = master_token の CBOR (そのまま)
+- ✅ payload_chunk = `{6: IV+ct, 7: b"", 8: keyid, 9: hmac[:16]}`
+
+### 4.3 未確認事項
+
+- ❓ payload 内部の JSON フォーマット (manifest body の正確な構造)
+- ❓ keyid suffix (`_1`, `_3`, `_5`, `_8`) のどれが正しいか
+- ❓ リプレイでは毎回 server DH が新しくなるため、session keys が元のものと異なる
+- ❓ サーバー側が manifest リクエストを復号できているか不明
+
+### 4.4 次のステップ
+
+**同期セッション内の manifest リクエストをキャプチャ**して以下を検証:
+
+1. 実機で Netflix を起動 (新しい appboot 発生)
+2. 動画を再生して manifest リクエストを発生させる
+3. mitmproxy が `req_N_ios_manifest_*.bin` を保存
+4. 同セッションの `msl_keys_*.json` から session keys を導出
+5. Python で payload chunk を復号 → 実際の manifest JSON 構造を確認
+6. Python で同じ構造の manifest を再構築して送信
+
+---
+
+## 5. 保存済みデータ
+
+```
+raws/ios/captures/
+  ├── msl_keys_20260410_0613.json     # 同期セッション Tweak キャプチャ
+  ├── appboot_req_20260410_0613.bin    # 同期セッション msg1
+  ├── dh_keypair.json                  # 旧 DH 鍵ペア
+  ├── session_keys.json                # 旧導出セッション鍵
+  ├── entityauth_values.json           # ESN, appid, devicetoken 等
+  └── devicetoken.bin
+
+raws/ios/20260410/raw/
+  ├── req_212_appboot_2026-04-10T06-13-06-314Z.bin  # 同期 msg1
+  ├── res_212_appboot_2026-04-10T06-13-06-314Z.bin  # 同期 res
+  └── ...
 ```
 
-## 6. テスト
+---
+
+## 6. TEE 依存の処理 (Python 再現不可)
+
+全ての暗号処理が `AppleTeeApiCryptoShim` 経由で TEE 内実行されるが、**実測では OpenSSL の `DH_generate_key` フックも発火** — TEE が内部的に OpenSSL を使っているか、フォールバックパスがある。
+
+| 処理 | バイナリ関数 | Tweak フック | 実測 |
+|------|------------|-------------|------|
+| DH 鍵生成 | `DH_generate_key` (OpenSSL) | AppbootKeyExtract | ✅ 発火 |
+| DH 共有秘密 | `DH_compute_key` (OpenSSL) | 同上 | ✅ 発火 |
+| MGK 導出 | TFIT-WB-AES | Unicorn エミュレーション | ✅ 再現可能 |
+| HMAC/AES | 内部実装 | (TEE 経由) | — |
+
+---
+
+## 7. 実行方法
 
 ```bash
-# KDF 回帰テスト (13/13 PASS)
+# KDF 回帰テスト (オフライン、13/13 PASS)
 uv run python tools/verify_full_key_chain.py
 
 # E2E appboot テスト (サーバー接続)
 uv run python tools/test_appboot_e2e.py --no-proxy
 
-# mitmproxy キャプチャリプレイ (成功確認済み)
-uv run python -c "
-import requests, cbor2
-data = open('raws/ios/20260408/raw/req_1351_appboot_2026-04-08T13-57-53-350Z.bin', 'rb').read()
-resp = requests.post('https://appboot.netflix.com/appboot/NFAPPL-02-IPHONE9=1-',
-    params={'keyVersion': '1'}, data=data, verify=False)
-r = cbor2.loads(resp.content)
-print(f'SUCCESS: keys={list(r.keys())}')
-"
+# manifest テスト (ec=1 で止まる、要同期セッション manifest キャプチャ)
+uv run python tools/test_msl_manifest.py --live-appboot
 ```
