@@ -98,25 +98,29 @@ flowchart TD
 
 ## 2. 現在の壁
 
-### 壁 1: apphmac (32B) の値が作れない → errorcode=6
+### 壁 1: apphmac (32B) の値が Python で計算できない → errorcode=6
 
 ```
-entity_auth_data の中の "apphmac" フィールドに入れる 32 バイトの値がわからない。
+entity_auth_data の "apphmac" = HMAC(AIK, devicetoken_216B)
+ただし TEE (Trusted Execution Environment) 内で計算されるため、ソフトウェア再現不可。
 
-分かっていること:
-  - 32B の raw bytes (Base64文字列ではない)
-  - サーバーが検証する (ランダム値は拒否される)
-  - セッション内では安定、セッション間で変化
-  - HMAC/SHA256/HKDF/TFIT の既知の組み合わせでは導出できなかった
-  - FpsMgkAppIdAuthData オブジェクトの this+0xe8 に格納される
+導出の全容:
+  1. AIK (32B) はバイナリ Base64 "OLIDDdVeM2cpAhPK..." = 38b2030d...
+  2. importKey() で TEE に sealed される → ハードウェア保護された鍵ハンドル
+  3. AppleTeeApiCryptoShim::hmac() が TEE 内で HMAC 計算
+  4. TEE 内の鍵は sealed されておりソフトウェアから読み出せない
+  5. 標準 HMAC-SHA256(AIK_raw_bytes, devicetoken) では不一致
+     → TEE が独自の鍵導出を行っている
 
-分かっていないこと:
-  - 何から計算されるか (導出式)
-  - this+0xe8 に誰が何を書き込むか
+Python で再現不可能な理由:
+  - TEE (Secure Enclave) のハードウェア鍵がデバイス固有
+  - バイナリの AIK バイトは TEE への「入力」であり、TEE 内部で変換される
+  - 同じ AIK バイトでも TEE ごとに異なる出力を返す可能性
 
 回避策:
-  - 4/8キャプチャの real ead (apphmac含む) を使えば ec=6 は通過する
-  - ただし根本解決ではない
+  - mitmproxy で appboot リクエスト CBOR をキャプチャ → apphmac を直接抽出
+  - 抽出した apphmac + devicetoken のペアをパラメータとして Python に渡す
+  - 同一 devicetoken を使う限り apphmac は再利用可能
 ```
 
 ### 壁 2: TFIT 復号がサーバーで失敗する → errorcode=1
@@ -150,7 +154,7 @@ entity_auth_data の中の "apphmac" フィールドに入れる 32 バイトの
 | 7 | scheme_data 352B 構築 | ✅ | CFB-chain 復号で構造確認済み |
 | 8 | HMAC-SHA256 署名 | ✅ | real signature と一致 |
 | 9 | HTTP POST + レスポンス解析 | ✅ | サーバー到達、HTTP 200 |
-| 10 | apphmac の正しい値 | ❌ | 導出元不明 |
+| 10 | apphmac の正しい値 | ❌ | TEE 内 HMAC → Python 再現不可。mitmproxy キャプチャで回避 |
 | 11 | TFIT 暗号化がサーバーで復号可能 | ❌ | real krd リプレイでも失敗 |
 
 ---
