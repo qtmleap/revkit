@@ -1,0 +1,68 @@
+{
+  "msg1_inner": {
+    "messageid": 1280693052411783,
+    "sequencenumber": 1,
+    "compressionalgo": "",
+    "endofmsg": true,
+    "data": "eyJ2ZXJzaW9uIjogMiwgInVybCI6ICIvbWFuaWZlc3QiLCAiaWQiOiAxMjgwNjkzMDUyNDExNzgzLCAibGFuZ3VhZ2VzIjogWyJlbi1VUyJdLCAicGFyYW1zIjogeyJ0eXBlIjogInN0YW5kYXJkIiwgInZpZXdhYmxlSWQiOiA4MTIxNTU2NywgInByb2ZpbGVzIjogWyJoZWFhYy0yLWRhc2giLCAiaGVhYWMtMmhxLWRhc2giLCAicGxheXJlYWR5LWgyNjRtcGwzMC1kYXNoIiwgInBsYXlyZWFkeS1oMjY0bXBsMzEtZGFzaCIsICJwbGF5cmVhZHktaDI2NGhwbDMwLWRhc2giLCAicGxheXJlYWR5LWgyNjRocGwzMS1kYXNoIiwgInZwOS1wcm9maWxlMC1MMzAtZGFzaC1jZW5jIiwgInZwOS1wcm9maWxlMC1MMzEtZGFzaC1jZW5jIiwgImRmeHAtbHMtc2RoIiwgInNpbXBsZXNkaCIsICJuZmx4LWNtaXNjIiwgIkJJRjI0MCIsICJCSUYzMjAiXSwgImZsYXZvciI6ICJTVEFOREFSRCIsICJkcm1UeXBlIjogImZhaXJwbGF5IiwgImRybVZlcnNpb24iOiAyNSwgInVzZVBzc2hCb3giOiB0cnVlLCAiaXNCcmFuY2hpbmciOiBmYWxzZSwgInVzZUh0dHBzU3RyZWFtcyI6IHRydWUsICJpbWFnZVN1YnRpdGxlSGVpZ2h0IjogMTg5LCAidWlWZXJzaW9uIjogInNoYWt0aS12MjVkMmZhMjEiLCAidWlQbGF0Zm9ybSI6ICJTSEFLVEkiLCAiY2xpZW50VmVyc2lvbiI6ICI2LjAwMTEuNDc0LjAxMSIsICJzdXBwb3J0c1ByZVJlbGVhc2VQaW4iOiB0cnVlLCAic3VwcG9ydHNXYXRlcm1hcmsiOiB0cnVlLCAic2hvd0FsbFN1YkR1YlRyYWNrcyI6IGZhbHNlLCAidGl0bGVTcGVjaWZpY0RhdGEiOiB7IjgxMjE1NTY3IjogeyJ1bmxldHRlcmJveGVkIjogZmFsc2V9fSwgInZpZGVvT3V0cHV0SW5mbyI6IFt7InR5cGUiOiAiRGlnaXRhbFZpZGVvT3V0cHV0RGVzY3JpcHRvciIsICJvdXRwdXRUeXBlIjogInVua25vd24iLCAic3VwcG9ydGVkSGRjcFZlcnNpb25zIjogW10sICJpc0hkY3BFbmdhZ2VkIjogZmFsc2V9XSwgInByZWZlckFzc2lzdGl2ZUF1ZGlvIjogZmFsc2UsICJpc05vbk1lbWJlciI6IGZhbHNlLCAic3VwcG9ydHNBZEJyZWFrSHlkcmF0aW9uIjogZmFsc2UsICJyZXF1ZXN0RWxpZ2libGVBQlRlc3RzIjogdHJ1ZSwgInN1cHBvcnRzVW5lcXVhbGl6ZWREb3dubG9hZGFibGVzIjogdHJ1ZX19"
+  },
+  "manifest_body": {
+    "version": 2,
+    "url": "/manifest",
+    "id": 1280693052411783,
+    "languages": [
+      "en-US"
+    ],
+    "params": {
+      "type": "standard",
+      "viewableId": 81215567,
+      "profiles": [
+        "heaac-2-dash",
+        "heaac-2hq-dash",
+        "playready-h264mpl30-dash",
+        "playready-h264mpl31-dash",
+        "playready-h264hpl30-dash",
+        "playready-h264hpl31-dash",
+        "vp9-profile0-L30-dash-cenc",
+        "vp9-profile0-L31-dash-cenc",
+        "dfxp-ls-sdh",
+        "simplesdh",
+        "nflx-cmisc",
+        "BIF240",
+        "BIF320"
+      ],
+      "flavor": "STANDARD",
+      "drmType": "fairplay",
+      "drmVersion": 25,
+      "usePsshBox": true,
+      "isBranching": false,
+      "useHttpsStreams": true,
+      "imageSubtitleHeight": 189,
+      "uiVersion": "shakti-v25d2fa21",
+      "uiPlatform": "SHAKTI",
+      "clientVersion": "6.0011.474.011",
+      "supportsPreReleasePin": true,
+      "supportsWatermark": true,
+      "showAllSubDubTracks": false,
+      "titleSpecificData": {
+        "81215567": {
+          "unletterboxed": false
+        }
+      },
+      "videoOutputInfo": [
+        {
+          "type": "DigitalVideoOutputDescriptor",
+          "outputType": "unknown",
+          "supportedHdcpVersions": [],
+          "isHdcpEngaged": false
+        }
+      ],
+      "preferAssistiveAudio": false,
+      "isNonMember": false,
+      "supportsAdBreakHydration": false,
+      "requestEligibleABTests": true,
+      "supportsUnequalizedDownloadables": true
+    }
+  },
+  "keyid": "NFAPPL-02-IPHONE9=1-AD0455EF27D3A7B8F0872932FD9837874AF3E6F90157195BD22A8063FEB0B79E_1"
+}
