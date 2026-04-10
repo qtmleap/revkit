@@ -5,169 +5,153 @@
 
 ---
 
-## 1. appboot フローチャート
+## 1. フローチャート
 
 ```mermaid
 flowchart TD
-    START([Python appboot 開始]) --> ESN[ESN を入力]
-    
-    ESN --> TFIT["Phase 0: TFIT エミュレーション<br/>SHA384(ESN) → TFIT-WB-AES<br/>→ enc_key_0 (16B) + sign_key_0 (32B)"]
-    TFIT --> KDF["Phase 3: KDF チェーン<br/>HMAC-SHA256 × 6段<br/>→ enc_key_1, sign_key_1, session_bind"]
-    KDF --> DH["DH 鍵ペア生成<br/>p=Netflix固有1024bit, g=5<br/>→ dh_pub_key (128B), dh_priv_key (128B)"]
-    
-    DH --> EAD_BUILD["entity_auth_data 構築 (CBOR)"]
-    DH --> KRD_BUILD["key_request_data 構築 (CBOR)"]
-    
-    subgraph ead ["entity_auth_data (平文 CBOR, ~467B)"]
-        EAD_BUILD --> EAD_SCHEME["key 30: 'MGK_APPID' ✅ 固定"]
-        EAD_BUILD --> EAD_ESN["key 35.3: ESN ✅ 固定"]
-        EAD_BUILD --> EAD_APPID["key 35.appid: UUID ✅ 固定"]
-        EAD_BUILD --> EAD_AKV["key 35.appkeyversion: 1 ✅ 固定"]
-        EAD_BUILD --> EAD_APPHMAC["key 35.apphmac: 32B ❌ 導出元不明"]
-        EAD_BUILD --> EAD_DT["key 35.devicetoken: 216B ⚠️ 取得方法は判明<br/>(x-netflix-deviceidtoken Base64デコード)"]
-    end
-    
-    subgraph krd ["key_request_data (CBOR, ~499B)"]
-        KRD_BUILD --> KRD_SD["key 6: scheme_data 352B ✅ 構築済み"]
-        KRD_BUILD --> KRD_ID["key 8: ESN ✅"]
-        KRD_BUILD --> KRD_NONCE["key 9: XOR nonce 16B ✅"]
-        KRD_BUILD --> KRD_STATUS["key 7: empty ✅"]
-    end
-    
-    subgraph sd ["scheme_data 352B の内部構造"]
-        KRD_SD --> SD_HDR["[0:135] 固定 CBOR ヘッダー ✅"]
-        KRD_SD --> SD_TFIT["[135:263] TFIT(DH_pub) 128B ✅<br/>8 block WB-AES-128-ECB"]
-        KRD_SD --> SD_CFB["[263:352] CFB-chain CBOR テール 89B ✅<br/>AUTHENTICATED_DH + timestamp + flags"]
-        KRD_SD --> SD_XOR["全体を key33.9 nonce で XOR ✅"]
-    end
-    
-    EAD_APPHMAC --> SIGN["HMAC-SHA256(sign_key_0, krd_bytes)<br/>→ 署名 32B ✅"]
-    EAD_DT --> SIGN
-    KRD_SD --> SIGN
-    
-    SIGN --> MSG["CBOR メッセージ組立<br/>{34: ead, 33: krd, 16: sig}<br/>+ payload chunk ✅"]
-    
-    MSG --> POST["POST appboot.netflix.com ✅<br/>HTTP 200 返却"]
-    
-    POST --> SERVER_PARSE{"サーバー:<br/>CBOR パース"}
-    SERVER_PARSE -->|"パース失敗"| EC1_PARSE["errorcode=1<br/>'Error parsing MSL encodable'<br/>✅ 解決済み (Netflix CBOR エンコーダ)"]
-    SERVER_PARSE -->|"パース成功"| SERVER_EAD{"サーバー:<br/>entity_auth_data 検証"}
-    
-    SERVER_EAD -->|"apphmac/devicetoken 不正"| EC6["errorcode=6<br/>'App Id Validation failed'<br/>❌ ← 現在ここで詰まっている"]
-    SERVER_EAD -->|"検証成功"| SERVER_TFIT{"サーバー:<br/>scheme_data TFIT 復号"}
-    
-    SERVER_TFIT -->|"復号失敗"| EC1_DECRYPT["errorcode=1<br/>'Error decrypting data with cryptex'<br/>⚠️ real ead 使用時はここに到達"]
-    SERVER_TFIT -->|"復号成功"| SERVER_DH["サーバー:<br/>DH 公開鍵抽出 + 共有秘密計算"]
-    
-    SERVER_DH --> RESPONSE["appboot レスポンス<br/>server_scheme_data + nonce<br/>+ x-netflix-deviceidtoken ヘッダ"]
-    
-    RESPONSE --> PHASE2["Phase 2: DH 共有秘密 → セッション鍵<br/>✅ 実装済み (テスト通過)"]
-    PHASE2 --> MSL["MSL 暗号化通信開始"]
-    
-    style EC6 fill:#e74c3c,stroke:#c0392b,color:#fff
-    style EC1_DECRYPT fill:#e67e22,stroke:#d35400,color:#fff
-    style EC1_PARSE fill:#27ae60,stroke:#229954,color:#fff
-    style EAD_APPHMAC fill:#e74c3c,stroke:#c0392b,color:#fff
-    style EAD_DT fill:#f39c12,stroke:#e67e22,color:#fff
-    style TFIT fill:#2ecc71,stroke:#27ae60,color:#fff
-    style KDF fill:#2ecc71,stroke:#27ae60,color:#fff
-    style DH fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SIGN fill:#2ecc71,stroke:#27ae60,color:#fff
-    style POST fill:#2ecc71,stroke:#27ae60,color:#fff
-    style MSG fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SD_HDR fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SD_TFIT fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SD_CFB fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SD_XOR fill:#2ecc71,stroke:#27ae60,color:#fff
-    style SERVER_PARSE fill:#3498db,stroke:#2980b9,color:#fff
-    style SERVER_EAD fill:#3498db,stroke:#2980b9,color:#fff
-    style SERVER_TFIT fill:#3498db,stroke:#2980b9,color:#fff
-    style SERVER_DH fill:#3498db,stroke:#2980b9,color:#fff
+    START([Python appboot]) --> CAPTURE["mitmproxy で実機の appboot<br/>リクエスト (msg1) をキャプチャ"]
+
+    CAPTURE --> REPLAY["キャプチャした msg1 を<br/>そのまま POST appboot.netflix.com"]
+
+    REPLAY --> RESP["appboot レスポンス<br/>CBOR {33: key_response, 16: sig, 32: header}"]
+    RESP --> EXTRACT_IDT["x-netflix-deviceidtoken ヘッダ取得"]
+    RESP --> EXTRACT_KRD["key_response_data パース<br/>server_scheme_data + server_nonce"]
+
+    EXTRACT_KRD --> PHASE2["Phase 2: DH 共有秘密計算<br/>→ HMAC-SHA384 → セッション鍵"]
+    PHASE2 --> MSL["MSL 暗号化通信"]
+
+    style CAPTURE fill:#f39c12,stroke:#e67e22,color:#fff
+    style REPLAY fill:#2ecc71,stroke:#27ae60,color:#fff
+    style RESP fill:#2ecc71,stroke:#27ae60,color:#fff
     style PHASE2 fill:#2ecc71,stroke:#27ae60,color:#fff
+    style MSL fill:#2ecc71,stroke:#27ae60,color:#fff
 ```
 
-### 凡例
+## 2. 結論
 
-- 🟢 緑: 実装済み・動作確認済み
-- 🔴 赤: ブロッカー (未解決)
-- 🟠 オレンジ: 到達はしたが未解決
-- 🟡 黄: 取得方法は判明だが未検証
-- 🔵 青: サーバー側処理
+### Python 単体での appboot は不可能
 
----
+以下の暗号処理が全て **TEE (Trusted Execution Environment / Secure Enclave)** 内で実行される:
 
-## 2. 現在の壁
+| 処理 | 関数 | TEE 依存 |
+|------|------|----------|
+| scheme_data の DH 公開鍵暗号化 | `AppleTeeApiCryptoShim::aesecbenc` (0xa24c) | ✅ |
+| apphmac (32B) 計算 | `AppleTeeApiCryptoShim::hmac` (0x990c) | ✅ |
+| DH 鍵ペア生成 | `AppleTeeApiCryptoShim::dhKeyGen` (0xa35c) | ✅ |
+| DH 共有秘密 → セッション鍵導出 | `AppleTeeApiCryptoShim::nflxDhDerive` (0xa524) | ✅ |
 
-### 壁 1: apphmac (32B) の値が Python で計算できない → errorcode=6
+TEE 内の鍵はデバイスの Secure Enclave にハードウェア保護されており、ソフトウェアで再現できない。
+Unicorn TFIT エミュレーションの出力はサーバーに受理されない (ec=1 "Error decrypting data with cryptex")。
 
-```
-entity_auth_data の "apphmac" = HMAC(AIK, devicetoken_216B)
-ただし TEE (Trusted Execution Environment) 内で計算されるため、ソフトウェア再現不可。
-
-導出の全容:
-  1. AIK (32B) はバイナリ Base64 "OLIDDdVeM2cpAhPK..." = 38b2030d...
-  2. importKey() で TEE に sealed される → ハードウェア保護された鍵ハンドル
-  3. AppleTeeApiCryptoShim::hmac() が TEE 内で HMAC 計算
-  4. TEE 内の鍵は sealed されておりソフトウェアから読み出せない
-  5. 標準 HMAC-SHA256(AIK_raw_bytes, devicetoken) では不一致
-     → TEE が独自の鍵導出を行っている
-
-Python で再現不可能な理由:
-  - TEE (Secure Enclave) のハードウェア鍵がデバイス固有
-  - バイナリの AIK バイトは TEE への「入力」であり、TEE 内部で変換される
-  - 同じ AIK バイトでも TEE ごとに異なる出力を返す可能性
-
-回避策:
-  - mitmproxy で appboot リクエスト CBOR をキャプチャ → apphmac を直接抽出
-  - 抽出した apphmac + devicetoken のペアをパラメータとして Python に渡す
-  - 同一 devicetoken を使う限り apphmac は再利用可能
-```
-
-### 壁 2: TFIT 復号がサーバーで失敗する → errorcode=1
+### 動作するアプローチ: mitmproxy キャプチャ + リプレイ
 
 ```
-壁 1 を real ead で回避しても、次に errorcode=1 で止まる。
-
-分かっていること:
-  - "Error decrypting data with cryptex" = サーバーが scheme_data を復号できない
-  - 4/8 キャプチャの real krd をリプレイしても同じエラー
-  - つまり 4/8 時点の TFIT 暗号化データも今のサーバーでは復号できない
-
-分かっていないこと:
-  - サーバー側の TFIT/AES 鍵がいつローテーションされたか
-  - 現在のサーバー鍵に対応する TFIT テーブルが何か
-  - リプレイ保護 (タイムスタンプ検証) が原因の可能性
+実機 (Netflix iOS) ──→ mitmproxy ──→ appboot.netflix.com
+                          │
+                    msg1 バイト列を保存
+                          │
+                          ▼
+                    Python でリプレイ
+                    → CBOR レスポンス取得
+                    → DH 共有秘密 → セッション鍵
+                    → MSL 暗号化通信
 ```
 
----
+**検証済み:**
+- mitmproxy キャプチャの msg1 リプレイ → ★ SUCCESS (CBOR レスポンス返却)
+- msg2 (payload chunk) は不要 — msg1 のみで成功
+- リプレイ保護なし (4/8 キャプチャが 4/10 でも成功)
 
-## 3. 実装済みコンポーネント一覧
+### 残る課題: DH 秘密鍵の取得
 
-| # | コンポーネント | 状態 | 検証方法 |
-|---|--------------|------|---------|
-| 1 | ESN → MGK (TFIT エミュレーション) | ✅ | ライブキャプチャ値と完全一致 |
-| 2 | Phase 3 KDF (6段 HMAC チェーン) | ✅ | 13/13 テスト PASS |
-| 3 | Phase 2 KDF (HMAC-SHA384) | ✅ | テストベクトル一致 |
-| 4 | DH 鍵生成/共有秘密計算 | ✅ | ラウンドトリップ検証 |
-| 5 | Netflix カスタム CBOR エンコーダ | ✅ | real ead と 467B byte-for-byte 一致 |
-| 6 | entity_auth_data CBOR 構造 | ✅ | 正しい値を入れれば real と一致 |
-| 7 | scheme_data 352B 構築 | ✅ | CFB-chain 復号で構造確認済み |
-| 8 | HMAC-SHA256 署名 | ✅ | real signature と一致 |
-| 9 | HTTP POST + レスポンス解析 | ✅ | サーバー到達、HTTP 200 |
-| 10 | apphmac の正しい値 | ❌ | TEE 内 HMAC → Python 再現不可。mitmproxy キャプチャで回避 |
-| 11 | TFIT 暗号化がサーバーで復号可能 | ❌ | real krd リプレイでも失敗 |
+リプレイ方式では **実機の DH 秘密鍵が必要** (Phase 2 でサーバー DH 公開鍵との共有秘密を計算するため)。
 
----
+取得方法:
+1. **Tweak (AppbootKDF)** で `DH_generate_key` フック → `dh_priv_key` をキャプチャ
+2. mitmproxy の msg1 と同じセッションの DH 秘密鍵をペアで保存
+3. Python で `DH_compute_key(server_pub, client_priv)` → Phase 2 KDF → セッション鍵
 
-## 4. テスト実行方法
+## 3. 実装済みコンポーネント
+
+| # | コンポーネント | 状態 |
+|---|--------------|------|
+| 1 | mitmproxy キャプチャアドオン | ✅ 動作中 |
+| 2 | msg1 リプレイ → CBOR レスポンス取得 | ✅ 検証済み |
+| 3 | Netflix カスタム CBOR エンコーダ/デコーダ | ✅ |
+| 4 | Phase 3 KDF | ✅ 13/13 テスト PASS |
+| 5 | Phase 2 KDF (DH → セッション鍵) | ✅ テストベクトル一致 |
+| 6 | scheme_data 352B CBOR 構造解析 | ✅ 完全解明 |
+| 7 | entity_auth_data CBOR 構造解析 | ✅ 完全解明 |
+| 8 | TFIT MGK エミュレーション | ✅ (サーバー検証は不可) |
+
+## 4. TEE 依存で Python 再現不可なもの
+
+| 処理 | バイナリ関数 | 理由 |
+|------|------------|------|
+| TFIT-WB-AES 暗号化 (scheme_data) | `aesecbenc` (0xa24c) | Sealed key in TEE |
+| apphmac 計算 | `hmac` (0x990c) | Sealed AIK in TEE |
+| DH 鍵生成 | `dhKeyGen` (0xa35c) | TEE 内で鍵ペア生成 |
+| DH 共有秘密導出 | `nflxDhDerive` (0xa524) | TEE 内で HMAC-SHA384 |
+
+**AIK バイト** `38b2030dd55e3367290213ca0d16ee079524ccd24fb7221a52145fb6de016fd8`
+(Base64: `OLIDDdVeM2cpAhPKDRbuB5UkzNJPtyIaUhRftt4Bb9g=`) はバイナリに存在するが、
+TEE に importKey で sealed された後はデバイス固有の変換を受ける。
+
+## 5. 実行手順
+
+### Step 1: mitmproxy でキャプチャ
 
 ```bash
-# KDF 回帰テスト (オフライン、13/13 PASS)
+# mitmproxy 起動 (既に動作中)
+uv run mitmdump --listen-port 9080 --set block_global=false --ssl-insecure \
+    -s packages/mitmproxy/netflix_ios_capture.py
+```
+
+### Step 2: 実機で Netflix を操作 → appboot 発生
+
+```bash
+# キャプチャ確認
+ls raws/ios/*/raw/req_*_appboot_*.bin
+```
+
+### Step 3: Python でリプレイ
+
+```python
+import requests, cbor2
+
+msg1 = open("raws/ios/20260408/raw/req_1351_appboot_*.bin", "rb").read()
+resp = requests.post(
+    "https://appboot.netflix.com/appboot/NFAPPL-02-IPHONE9=1-",
+    params={"keyVersion": "1"}, data=msg1, verify=False,
+)
+response_cbor = cbor2.loads(resp.content)
+device_id_token = resp.headers.get("x-netflix-deviceidtoken")
+```
+
+### Step 4: DH 共有秘密 → セッション鍵 (要 DH 秘密鍵)
+
+```python
+# Tweak でキャプチャした DH 秘密鍵が必要
+dh_shared = NetflixCrypto.compute_dh_shared_secret(server_pub, client_priv)
+session_keys = NetflixCrypto.derive_full_key_chain(enc_key_0, sign_key_0, dh_shared)
+```
+
+## 6. テスト
+
+```bash
+# KDF 回帰テスト (13/13 PASS)
 uv run python tools/verify_full_key_chain.py
 
 # E2E appboot テスト (サーバー接続)
 uv run python tools/test_appboot_e2e.py --no-proxy
 
-# deviceIdToken 指定
-uv run python tools/test_appboot_e2e.py --no-proxy --device-id-token 'Base64文字列'
+# mitmproxy キャプチャリプレイ (成功確認済み)
+uv run python -c "
+import requests, cbor2
+data = open('raws/ios/20260408/raw/req_1351_appboot_2026-04-08T13-57-53-350Z.bin', 'rb').read()
+resp = requests.post('https://appboot.netflix.com/appboot/NFAPPL-02-IPHONE9=1-',
+    params={'keyVersion': '1'}, data=data, verify=False)
+r = cbor2.loads(resp.content)
+print(f'SUCCESS: keys={list(r.keys())}')
+"
 ```
