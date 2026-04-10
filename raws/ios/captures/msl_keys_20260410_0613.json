@@ -1,0 +1,90 @@
+{
+  "dh_sha256_16" : "a8cd5606f9ecd88ec57ddba4591d179e",
+  "dh_sha384_16" : "203b09a978810590c87fb7c5340e4b6c",
+  "dh_sha384_padded" : "27afe60b07cab8403ad6fba55cce203e9cadd3496a0f13b0ceeac597ffd9069ee9310fe6dc2d176009ceb977c0332af7",
+  "dh_sha384_padded_16" : "27afe60b07cab8403ad6fba55cce203e",
+  "session_enc_key" : "2f31028c2fa6387810076a984c1ff47b",
+  "timestamp" : "2026-04-10T15:13:07",
+  "pre_session_hmac_key" : "58c4e3d1cc2ce7bd73e846a1c3b00a9986aa039302d7bbf1a5508d5f9a49120f",
+  "dh_pub_key" : "32d938ef0c1026fbb7c509a78316452b519df28ed34b663503a5120abd5ee70c244435a3389463a98f10682bd9588517b0443b10f7d657bbc9555c234f763e87a4dbf386d2b016b1c3b587117628b3f40632cb039d3788dce78c24a01f022f28033e6f2856c84c791553226e117347740d71957221377ee4702e5656ca42eb8c",
+  "dh_sha384" : "203b09a978810590c87fb7c5340e4b6c20a2180e61f197fac19849869bdf5327955fbb96fef5234d619ab38d778cec51",
+  "hmac_key_history" : [
+    {
+      "key" : "19def2f90d06bc8dfd04a19dbd4588d4e7b8aa6ccacb200f9ae6acc49355917d",
+      "phase" : "pre_appboot"
+    },
+    {
+      "key" : "e60e376f37d7d962512aea2f29a353c28b0fb95b1e77c43baf7459b21d1df649",
+      "phase" : "pre_appboot"
+    },
+    {
+      "key" : "58c4e3d1cc2ce7bd73e846a1c3b00a9986aa039302d7bbf1a5508d5f9a49120f",
+      "phase" : "pre_appboot"
+    },
+    {
+      "key" : "91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "38b2030dd55e3367290213ca0d16ee079524ccd24fb7221a52145fb6de016fd8",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "91f752f76d7ab4c2dc6e5b3ec1c0e5a16864421fe449be5457459602e298ebc1",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "10b69de5f95c5494eccacca59fc402d5e147a9a72a28d10da3608e0bfea1ae79",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "a73c996991f7f02fd0bfe3322d0cee070fe1f085903c7a49e4370b8f364c74b5",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "d45443fa11efec622c83b27c55f7a73143bdfa0d51820ac597b9e3fb5c28dbb0",
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "a73c996991f7f02fd0bfe3322d0cee070fe1f085903c7a49e4370b8f364c74b5",
+      "phase" : "post_appboot"
+    }
+  ],
+  "dh_p" : "9694e9d8d93a5ac74c509b4bbce85e92132cd19cce477d1a7e47d527d9ec291515f0b8b3e1eaed5006e1b1b91ea25b91a01b10e2e834b8d660b2e321ad644ce1a83b328d9014ee7e16f1e44ffe89579ac3ee47d668b6b76687c2fe90a35b5e6028fd04efea882373ecf60ba2f637e4cdaa1b6089d6c0b561a8e520e796de27df",
+  "dh_sha256" : "a8cd5606f9ecd88ec57ddba4591d179ecd3007bdedd082cb2fe0955df5542f8c",
+  "dh_shared_secret" : "51571f60c2e451894bd0d0ae6e13e7cf7512af826bac22124d7bef0387774cea92f32907e1e774cc81988277af4f3758cb61008c1bd17debb55556679327f8e92f55b8ffd7cdf87f75764a1d1e2761e7cc78924f9bc8458b520279a6a3f46140b3f83dce87d902091508e851d69205883d7ebba9e20e7033a0104b5b8d643323",
+  "aes_key_history" : [
+    {
+      "key" : "0817065e29e6d1c8668473af9e13b3c2",
+      "bits" : 128,
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "97b99f4e88e8e73779aa20ac11877c5d",
+      "bits" : 128,
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "2f31028c2fa6387810076a984c1ff47b",
+      "bits" : 128,
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "97b99f4e88e8e73779aa20ac11877c5d",
+      "bits" : 128,
+      "phase" : "post_appboot"
+    },
+    {
+      "key" : "2f31028c2fa6387810076a984c1ff47b",
+      "bits" : 128,
+      "phase" : "post_appboot"
+    }
+  ],
+  "dh_g" : "05",
+  "dh_priv_key" : "7aaa8a15a38b629046099d5c55ba644249da3160e8df6dbf732d164627020bb29c34a21321d6ea22b73dfdfc76c124559b35672b6829fa99e5878d716ea4ee260877d7eca4d732f4b03c60e9fbd942a1e5960a46fa973bd7295e6319c577f79b88644254b9803ee522b381877771c98a7138726ebdd4aa036e613e9a619342fe",
+  "session_hmac_key" : "a73c996991f7f02fd0bfe3322d0cee070fe1f085903c7a49e4370b8f364c74b5"
+}
