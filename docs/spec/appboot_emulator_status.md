@@ -62,14 +62,30 @@ Unicorn TFIT エミュレーションの出力はサーバーに受理されな�
 - msg2 (payload chunk) は不要 — msg1 のみで成功
 - リプレイ保護なし (4/8 キャプチャが 4/10 でも成功)
 
-### 残る課題: DH 秘密鍵の取得
+### 残る課題: セッション鍵の取得
 
-リプレイ方式では **実機の DH 秘密鍵が必要** (Phase 2 でサーバー DH 公開鍵との共有秘密を計算するため)。
+**DH 鍵生成も TEE 内で実行される** (`AppleTeeApiCryptoShim::dhKeyGen`)。
+OpenSSL の `DH_generate_key` は呼ばれず、Tweak フックでは捕捉できない。
 
-取得方法:
-1. **Tweak (AppbootKDF)** で `DH_generate_key` フック → `dh_priv_key` をキャプチャ
-2. mitmproxy の msg1 と同じセッションの DH 秘密鍵をペアで保存
-3. Python で `DH_compute_key(server_pub, client_priv)` → Phase 2 KDF → セッション鍵
+ただし以前の Frida セッション (`raws/msl_keys.json`) に DH 秘密鍵 + 共有秘密が保存されており、
+Phase 2 KDF からセッション鍵を導出 → ライブキャプチャ値と**完全一致**を確認済み。
+
+**manifest リクエストの課題:**
+- appboot はリプレイ可能 (4/8 キャプチャが 4/10 でも成功)
+- manifest はリプレイ不可 (HTTP 400 — セッション期限切れ)
+- manifest には**ライブセッションの master token + session keys** が必要
+- Python でセッション鍵を導出するには DH 秘密鍵が必要 → TEE 依存
+
+**実現可能なアプローチ:**
+1. **Frida attach** で `AppleTeeApiCryptoShim::dhKeyGen` の返り値をフック → DH 公開鍵/秘密鍵キャプチャ
+2. 同時に mitmproxy で appboot リクエストをキャプチャ
+3. appboot リプレイ → server DH pub → DH shared secret → セッション鍵
+4. セッション鍵 + master token で manifest リクエスト構築
+
+**tools/test_msl_manifest.py で確認済み:**
+- appboot リプレイ → server DH pub 抽出 → DH shared secret → セッション鍵 ✅
+- AES-CBC 暗号化 + HMAC 署名 → manifest CBOR 構築 → POST → HTTP 200 ✅
+- errorcode=3 "master token signature verification failed" — セッション鍵の不一致 (古い DH 鍵使用のため)
 
 ## 3. 実装済みコンポーネント
 
