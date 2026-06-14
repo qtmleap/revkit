@@ -1,0 +1,24 @@
+{
+  "name": "kiou-usi-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "USI bridge for KIOU iOS shogi app — fronts as a USI engine for shogidokoro/ShogiGUI and replays the live KIOU board via the KiouUsiProxy tweak's WebSocket feed.",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "typecheck": "bun run --bun tsc --noEmit"
+  },
+  "dependencies": {
+    "@ultemica/yaneuraou-wasm-mobility-cfworkers": "file:./wasm-pkg/yaneuraou-wasm-mobility-cfworkers",
+    "tsshogi": "^2.3.4",
+    "ws": "^8.18.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "bun-types": "latest",
+    "typescript": "^5.4.0"
+  }
+}
