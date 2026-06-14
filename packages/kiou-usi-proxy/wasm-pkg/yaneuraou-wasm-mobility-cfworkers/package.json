@@ -1,0 +1,34 @@
+{
+  "name": "@ultemica/yaneuraou-wasm-mobility-cfworkers",
+  "version": "8.50.0",
+  "description": "YaneuraOu shogi engine for Cloudflare Workers (Wasm, Mobility — embedded weights, no external eval required)",
+  "license": "GPL-3.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/yaneuraou.js",
+    "dist/yaneuraou.wasm",
+    "README.md",
+    "SPEC.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./wasm": "./dist/yaneuraou.wasm",
+    "./engine": "./dist/yaneuraou.js"
+  },
+  "scripts": {
+    "build:wasm": "act workflow_dispatch -W ../.github/workflows/build-cfworkers.yml --bind",
+    "build:loader": "tsc",
+    "build": "npm run build:wasm && npm run build:loader"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240000.0",
+    "typescript": "^5.0.0"
+  }
+}

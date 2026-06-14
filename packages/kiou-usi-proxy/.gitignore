@@ -1,0 +1,9 @@
+node_modules/
+bun.lockb
+dist/
+*.log
+.DS_Store
+
+# Runtime artifacts — regenerated per session, not source.
+game-log.jsonl
+bridge.log
