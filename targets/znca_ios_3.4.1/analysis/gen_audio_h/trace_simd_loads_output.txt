@@ -1,0 +1,142 @@
+====================================================================================================
+SITE 0x10095c6c8: ldr q0, [x9, x8]
+  containing pseudo-block leader: 0x10095c6bc  (offset from func start: 0x4d4bc)
+  preceding instructions in block:
+    0x10095c6bc: lsl x8, x11, #3
+    0x10095c6c0: add x9, x19, #0x43, lsl #12
+    0x10095c6c4: add x9, x9, #0x68
+    0x10095c6c8: ldr q0, [x9, x8]
+
+  base register = x9, index register = x8
+
+  --- tracing base register x9 ---
+    [block 0x10095c6bc] 0x10095c6c4: add x9, x9, #0x68
+
+  --- tracing index register x8 ---
+    [block 0x10095c6bc] 0x10095c6bc: lsl x8, x11, #3
+
+====================================================================================================
+SITE 0x1009e73b0: ldr q0, [x9, x8]
+  containing pseudo-block leader: 0x1009e73a4  (offset from func start: 0xd81a4)
+  preceding instructions in block:
+    0x1009e73a4: lsl x8, x11, #3
+    0x1009e73a8: add x9, x19, #0x44, lsl #12
+    0x1009e73ac: add x9, x9, #0x5c8
+    0x1009e73b0: ldr q0, [x9, x8]
+
+  base register = x9, index register = x8
+
+  --- tracing base register x9 ---
+    [block 0x1009e73a4] 0x1009e73ac: add x9, x9, #0x5c8
+
+  --- tracing index register x8 ---
+    [block 0x1009e73a4] 0x1009e73a4: lsl x8, x11, #3
+
+====================================================================================================
+SITE 0x1009ec2e0: ldr q0, [x9, x8]
+  containing pseudo-block leader: 0x1009ec2d4  (offset from func start: 0xdd0d4)
+  preceding instructions in block:
+    0x1009ec2d4: lsl x8, x11, #3
+    0x1009ec2d8: add x9, x19, #0x3b, lsl #12
+    0x1009ec2dc: add x9, x9, #0xf8c
+    0x1009ec2e0: ldr q0, [x9, x8]
+
+  base register = x9, index register = x8
+
+  --- tracing base register x9 ---
+    [block 0x1009ec2d4] 0x1009ec2dc: add x9, x9, #0xf8c
+
+  --- tracing index register x8 ---
+    [block 0x1009ec2d4] 0x1009ec2d4: lsl x8, x11, #3
+
+====================================================================================================
+SITE 0x1009ece78: ldr q0, [x9, x8]
+  containing pseudo-block leader: 0x1009ece6c  (offset from func start: 0xddc6c)
+  preceding instructions in block:
+    0x1009ece6c: lsl x8, x11, #3
+    0x1009ece70: add x9, x19, #0x3c, lsl #12
+    0x1009ece74: add x9, x9, #0xc
+    0x1009ece78: ldr q0, [x9, x8]
+
+  base register = x9, index register = x8
+
+  --- tracing base register x9 ---
+    [block 0x1009ece6c] 0x1009ece74: add x9, x9, #0xc
+
+  --- tracing index register x8 ---
+    [block 0x1009ece6c] 0x1009ece6c: lsl x8, x11, #3
+
+====================================================================================================
+SITE 0x1009ef5a4: ldr q0, [x10, x9]
+  containing pseudo-block leader: 0x1009ef598  (offset from func start: 0xe0398)
+  preceding instructions in block:
+    0x1009ef598: lsl x9, x8, #3
+    0x1009ef59c: add x10, x19, #0x3b, lsl #12
+    0x1009ef5a0: add x10, x10, #0xfcc
+    0x1009ef5a4: ldr q0, [x10, x9]
+
+  base register = x10, index register = x9
+
+  --- tracing base register x10 ---
+    [block 0x1009ef598] 0x1009ef5a0: add x10, x10, #0xfcc
+
+  --- tracing index register x9 ---
+    [block 0x1009ef598] 0x1009ef598: lsl x9, x8, #3
+
+====================================================================================================
+SITE 0x100a0d8d4: ldr q0, [x9, x8]
+  containing pseudo-block leader: 0x100a0d8d0  (offset from func start: 0xfe6c8)
+  preceding instructions in block:
+    0x100a0d8d0: ldr x9, [x19, #0x49f8]
+    0x100a0d8d4: ldr q0, [x9, x8]
+
+  base register = x9, index register = x8
+
+  --- tracing base register x9 ---
+    [block 0x100a0d8d0] 0x100a0d8d0: ldr x9, [x19, #0x49f8]
+
+  --- tracing index register x8 ---
+    [block 0x100a0d8d0] -> pred block 0x100957180 via b
+    [block 0x100957180] 0x10095718c: mov x8, #0
+    [block 0x100a0d8d0] -> pred block 0x1009961e4 via b
+    [block 0x1009961e4] -> pred block 0x1009961b8 via tbz
+    [block 0x1009961b8] 0x1009961d8: ldr x8, [x19, #0x4a28]
+
+====================================================================================================
+SITE 0x100a1cdac: ldr q0, [x9, x8]
+  containing pseudo-block leader: 0x100a1cda4  (offset from func start: 0x10dba0)
+  preceding instructions in block:
+    0x100a1cda4: lsl x8, x11, #3
+    0x100a1cda8: sub x9, x29, #0xa8
+    0x100a1cdac: ldr q0, [x9, x8]
+
+  base register = x9, index register = x8
+
+  --- tracing base register x9 ---
+    [block 0x100a1cda4] 0x100a1cda8: sub x9, x29, #0xa8
+
+  --- tracing index register x8 ---
+    [block 0x100a1cda4] 0x100a1cda4: lsl x8, x11, #3
+
+====================================================================================================
+SITE 0x100a1dff8: ldr q0, [x8, x11]
+  containing pseudo-block leader: 0x100a1dff4  (offset from func start: 0x10edec)
+  preceding instructions in block:
+    0x100a1dff4: ldr x8, [x19, #0x11c8]
+    0x100a1dff8: ldr q0, [x8, x11]
+
+  base register = x8, index register = x11
+
+  --- tracing base register x8 ---
+    [block 0x100a1dff4] 0x100a1dff4: ldr x8, [x19, #0x11c8]
+
+  --- tracing index register x11 ---
+    [block 0x100a1dff4] -> pred block 0x100a1dfc4 via cff
+    [block 0x100a1dfc4] -> pred block 0x10096f5f8 via b
+    [block 0x10096f5f8] 0x10096f604: mov x11, #0
+    [block 0x100a1dfc4] -> pred block 0x100a1e064 via b
+    [block 0x100a1e064] -> pred block 0x100a1dff4 via fallthrough
+    [block 0x100a1dff4] 0x100a1e05c: cmp x11, #0x20
+    [block 0x100a1dff4] -> pred block 0x100a1dff0 via fallthrough
+    [block 0x100a1dff0] UNRESOLVED(no predecessors found)
+

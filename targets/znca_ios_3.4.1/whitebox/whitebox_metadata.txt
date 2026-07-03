@@ -1,0 +1,7 @@
+Source: Crew binary, znca iOS 3.4.1
+VA range: 0x100f70000 .. 0x101192000
+File offset: 0xf70000
+Size: 2236416 bytes (2.133 MiB)
+Segment: __DATA
+Purpose: whitebox crypto tables (T-box / round key / permutation) for _gen_audio_h/h2
+Notes: Loaded via Mach-O mmap (not by initGenAudioH). All rounds appear TFIT-encoded (no raw AES SBox).

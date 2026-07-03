@@ -1,0 +1,8 @@
+digraph cfg {
+  rankdir=TB;
+  node [shape=box, fontname="monospace", fontsize=9];
+  n_1007d5510 [label="0x1007d5510"];
+  n_1007d5510 -> n_1007d5304 [label="cbz", color=blue];
+  n_1007d5510 -> n_1007d5534 [color=gray];
+  dynamic_unresolved [shape=diamond, style=filled, fillcolor=orange, label="DYNAMIC\n(unresolved)"];
+}
