@@ -1,78 +1,81 @@
 {
-    "name": "Mobile RE Toolkit",
-    "dockerComposeFile": [
-        "compose.yaml"
-    ],
-    "service": "app",
-    "workspaceFolder": "/home/vscode/app",
-    "shutdownAction": "stopCompose",
-    "remoteUser": "vscode",
-    "containerEnv": {
-        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+  "name": "Swift iOS Tweak",
+  "dockerComposeFile": [
+    "compose.yaml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/home/vscode/app",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "ANTHROPIC_BASE_URL": "${localEnv:ANTHROPIC_BASE_URL}",
+    "ANTHROPIC_AUTH_TOKEN": "${localEnv:ANTHROPIC_AUTH_TOKEN}",
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "UV_LINK_MODE": "copy",
+    "WAKATIME_API_KEY": "${localEnv:WAKATIME_API_KEY}"
+  },
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "THEOS": "/home/vscode/theos"
+  },
+  "mounts": [
+    "source=${env:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached,readonly",
+    "source=${env:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${env:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly",
+    "source=${env:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind,consistency=cached,readonly"
+  ],
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "configureZshAsDefaultShell": true
     },
-    "mounts": [
-        "source=${env:HOME}/.aws,target=/home/vscode/.aws,type=bind,consistency=cached,readonly",
-        "source=${env:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached",
-        "source=${env:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly",
-        "source=${env:HOME}/.mitmproxy,target=/home/vscode/.mitmproxy,type=bind,consistency=cached"
-    ],
-    "remoteEnv": {
-        "WAKATIME_API_KEY": "${localEnv:WAKATIME_API_KEY}",
-        "GH_TOKEN": "${localEnv:GH_TOKEN}",
-        "UV_LINK_MODE": "copy"
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
     },
-    "features": {
-        "ghcr.io/devcontainers/features/git:1": {
-            "version": "2.52.0"
-        },
-        "ghcr.io/devcontainers/features/common-utils:2": {
-            "configureZshAsDefaultShell": true
-        },
-        "ghcr.io/devcontainers/features/python:1": {
-            "version": "3.12"
-        },
-        "ghcr.io/devcontainers/features/github-cli:1": {},
-        "ghcr.io/jsburckhardt/devcontainer-features/uv:1": {},
-        "ghcr.io/stu-bell/devcontainer-features/claude-code:0": {},
-        "ghcr.io/devcontainers/features/node:1": {
-            "version": "25.9.0"
-        },
-        "ghcr.io/shyim/devcontainers-features/bun:0": {},
-        "ghcr.io/devcontainers/features/java:1": {
-            "version": "21",
-            "installMaven": false,
-            "installGradle": false
-        }
+    "ghcr.io/va-h/devcontainers-features/uv:1": {
+      "version": "latest"
     },
-    "forwardPorts": [9080],
-    "otherPortsAttributes": {
-        "onAutoForward": "ignore"
+    "ghcr.io/devcontainers/features/node:1.5.0": {
+      "version": "26.5.0"
     },
-    "postAttachCommand": "/bin/sh .devcontainer/postAttachCommand.sh",
-    "postCreateCommand": "/bin/sh .devcontainer/postCreateCommand.sh",
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "Anthropic.claude-code",
-                "EditorConfig.EditorConfig",
-                "GitHub.copilot",
-                "GitHub.copilot-chat",
-                "PKief.material-icon-theme",
-                "antfu.file-nesting",
-                "bierner.markdown-mermaid",
-                "bierner.markdown-preview-github-styles",
-                "charliermarsh.ruff",
-                "eamodio.gitlens",
-                "jebbs.markdown-extended",
-                "ms-python.black-formatter",
-                "ms-python.python",
-                "pHofer94.vscode-taskviewexplorer",
-                "redhat.vscode-yaml",
-                "swiftlang.swift-vscode",
-                "tamasfe.even-better-toml",
-                "vsls-contrib.gitdoc"
-            ],
-            "settings": {}
-        }
+    "ghcr.io/shyim/devcontainers-features/bun:0": {},
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21",
+      "installMaven": false,
+      "installGradle": false
+    },
+    "ghcr.io/stu-bell/devcontainer-features/claude-code:0": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    },
+    "ghcr.io/dhoeric/features/act:1": {},
+    "ghcr.io/devcontainers-community/features/direnv:1": {},
+    "ghcr.io/swift-server-community/swift-devcontainer-features/swift-format:0": {}
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+  "postAttachCommand": "/bin/sh .devcontainer/postAttachCommand.sh",
+  "postCreateCommand": "/bin/sh .devcontainer/postCreateCommand.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "EditorConfig.EditorConfig",
+        "PKief.material-icon-theme",
+        "antfu.file-nesting",
+        "bierner.markdown-mermaid",
+        "bierner.markdown-preview-github-styles",
+        "charliermarsh.ruff",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "redhat.vscode-yaml",
+        "swiftlang.swift-vscode",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {}
     }
+  }
 }
