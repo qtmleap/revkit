@@ -1,0 +1,144 @@
+name: Integration
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+  IOS_SDK_VERSION: "16.5"
+  LDID_VERSION: "v2.1.5-procursus7"
+
+jobs:
+  commitlint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed' || github.event.pull_request.merged != true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # commitlint --from HEAD~N needs prior commits in the working tree.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/package.json') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - name: Install commitlint
+        run: |
+          bun install conventional-changelog-conventionalcommits
+          bun install @commitlint/config-conventional@latest
+          bun install commitlint@latest
+      - name: Validate PR commits
+        if: github.event_name == 'pull_request'
+        run: |
+          bunx commitlint \
+            --from ${{ github.event.pull_request.head.sha }}~${{ github.event.pull_request.commits }} \
+            --to ${{ github.event.pull_request.head.sha }} \
+            --verbose
+      - name: Validate last commit
+        if: github.event_name == 'push'
+        run: bunx commitlint --last --verbose
+
+  format:
+    name: swift-format
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v5
+      - name: Skip if no Sources
+        id: sources
+        run: |
+          if [ -d Sources ] && [ -n "$(find Sources -name '*.swift' 2>/dev/null | head -1)" ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+      - name: swift-format lint
+        if: steps.sources.outputs.found == 'true'
+        run: swift-format lint --recursive --strict Sources
+
+  build:
+    name: Theos Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl git make perl xz-utils \
+            libplist-utils libc++-dev \
+            libtinfo6 libncurses6 \
+            python3 python3-pip
+
+      - name: Install ldid
+        run: |
+          curl -L -o /tmp/ldid \
+            "https://github.com/ProcursusTeam/ldid/releases/download/${LDID_VERSION}/ldid_linux_x86_64"
+          sudo install -m 0755 /tmp/ldid /usr/local/bin/ldid
+          ldid -V 2>&1 | head -1 || true
+
+      - name: Cache Theos
+        id: cache-theos
+        uses: actions/cache@v4
+        with:
+          path: theos
+          key: theos-linux-${{ env.IOS_SDK_VERSION }}-v1
+
+      - name: Install Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        run: |
+          [ -d "$THEOS/.git" ] || git clone --recursive https://github.com/theos/theos.git "$THEOS"
+
+          ARCH=$(uname -m)
+          curl -fsSL \
+            "https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-${ARCH}.tar.xz" \
+            | tar xJ -C "$THEOS/toolchain"
+
+          mkdir -p "$THEOS/sdks"
+          curl -L -o /tmp/sdk.tar.gz \
+            "https://github.com/theos/sdks/archive/master.tar.gz"
+          tar -xf /tmp/sdk.tar.gz -C /tmp
+          cp -R "/tmp/sdks-master/iPhoneOS${IOS_SDK_VERSION}.sdk" "$THEOS/sdks/"
+
+      - name: Verify Theos
+        run: |
+          test -d "$THEOS/sdks/iPhoneOS${IOS_SDK_VERSION}.sdk"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
+
+      - name: Build (debug)
+        run: |
+          make clean
+          make package
+          ls -la packages/
+
+      - name: Upload debug artifact
+        if: env.ACT != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tweak-debug-${{ github.sha }}
+          path: packages/*.deb
+          if-no-files-found: error
+          retention-days: 14

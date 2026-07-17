@@ -1,18 +1,154 @@
+# EditorConfig helps developers define and maintain consistent
+# coding styles between different editors and IDEs.
+# https://editorconfig.org
+
 root = true
 
+# ─────────────────────────────────────────────────────────────
+# Universal defaults
+# ─────────────────────────────────────────────────────────────
 [*]
-charset = utf-8
-end_of_line = lf
-insert_final_newline = true
-indent_size = 4
 indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
 trim_trailing_whitespace = true
+insert_final_newline = true
+max_line_length = 100
 
-[*.md]
+# ─────────────────────────────────────────────────────────────
+# JavaScript / TypeScript / CSS / JSON
+# 2-space indent, LF, single quotes.
+# ─────────────────────────────────────────────────────────────
+[*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}]
+indent_size = 2
+quote_type = single
+
+[*.{css,scss,sass,less,html,htm,vue,svelte,astro}]
+indent_size = 2
+
+[*.{json,jsonc,json5}]
+indent_size = 2
+quote_type = double
+
+# ─────────────────────────────────────────────────────────────
+# Python
+# PEP 8: 4-space indent, 79-char lines (Ruff default is 88).
+# ─────────────────────────────────────────────────────────────
+[*.{py,pyi}]
+indent_size = 4
+max_line_length = 88
+
+# ─────────────────────────────────────────────────────────────
+# Rust
+# rustfmt: 4-space indent, 100-char lines (matches our rustfmt.toml).
+# ─────────────────────────────────────────────────────────────
+[*.rs]
+indent_size = 4
+max_line_length = 100
+
+# ─────────────────────────────────────────────────────────────
+# Swift
+# Xcode default: 4-space indent. Matches our .swift-format lineLength=100.
+# ─────────────────────────────────────────────────────────────
+[*.swift]
+indent_size = 4
+max_line_length = 100
+
+# ─────────────────────────────────────────────────────────────
+# Objective-C / Logos (Theos tweaks)
+# ─────────────────────────────────────────────────────────────
+[*.{m,mm,h,x,xm,xi}]
+indent_size = 4
+max_line_length = 100
+
+# ─────────────────────────────────────────────────────────────
+# Go — tabs (gofmt requirement).
+# ─────────────────────────────────────────────────────────────
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# ─────────────────────────────────────────────────────────────
+# C / C++ / CUDA — 4-space indent typical for kernel code.
+# ─────────────────────────────────────────────────────────────
+[*.{c,cc,cpp,cxx,h,hh,hpp,hxx,cu,cuh}]
+indent_size = 4
+max_line_length = 100
+
+# ─────────────────────────────────────────────────────────────
+# Makefile — tabs are LOAD-BEARING; make will not run without them.
+# ─────────────────────────────────────────────────────────────
+[{Makefile,makefile,GNUmakefile,*.mk}]
+indent_style = tab
+indent_size = 4
+
+# ─────────────────────────────────────────────────────────────
+# Shell scripts — 2 spaces (Google shell style guide).
+# ─────────────────────────────────────────────────────────────
+[*.{sh,bash,zsh,fish}]
+indent_size = 2
+max_line_length = 100
+
+# ─────────────────────────────────────────────────────────────
+# Config: YAML, TOML, INI — 2 spaces.
+# YAML forbids tabs at spec level.
+# ─────────────────────────────────────────────────────────────
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{toml,ini,cfg,conf,properties}]
+indent_size = 2
+
+# ─────────────────────────────────────────────────────────────
+# Prisma schema — 2 spaces (matches Prisma's official formatter).
+# ─────────────────────────────────────────────────────────────
+[*.prisma]
+indent_size = 2
+
+# ─────────────────────────────────────────────────────────────
+# Markdown / MDX
+# Trailing whitespace is significant (two trailing spaces = <br>).
+# Disable trimming and don't wrap.
+# ─────────────────────────────────────────────────────────────
+[*.{md,mdx,markdown}]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# ─────────────────────────────────────────────────────────────
+# Dockerfile — 2 spaces for continuation lines.
+# ─────────────────────────────────────────────────────────────
+[{Dockerfile,Dockerfile.*,*.dockerfile,Containerfile}]
+indent_size = 2
+
+# ─────────────────────────────────────────────────────────────
+# XML / HTML fragments and plist (iOS control files)
+# ─────────────────────────────────────────────────────────────
+[*.{xml,plist,storyboard,xib,strings,svg}]
+indent_size = 4
+
+# ─────────────────────────────────────────────────────────────
+# GraphQL, SQL, Terraform, Helm
+# ─────────────────────────────────────────────────────────────
+[*.{graphql,gql}]
+indent_size = 2
+
+[*.sql]
+indent_size = 2
+max_line_length = 120
+
+[*.{tf,tfvars}]
+indent_size = 2
+
+# ─────────────────────────────────────────────────────────────
+# Lockfiles: format is generator-controlled, never hand-edit.
+# ─────────────────────────────────────────────────────────────
+[{package-lock.json,pnpm-lock.yaml,yarn.lock,bun.lock,bun.lockb,uv.lock,poetry.lock,Cargo.lock,Package.resolved,composer.lock}]
+insert_final_newline = false
 trim_trailing_whitespace = false
 
-[*.yml]
-indent_size = 2
-
-[*.yaml]
-indent_size = 2
+# ─────────────────────────────────────────────────────────────
+# Git-generated files
+# ─────────────────────────────────────────────────────────────
+[.gitmodules]
+indent_style = tab

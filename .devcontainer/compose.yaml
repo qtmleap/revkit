@@ -1,15 +1,38 @@
 services:
   app:
+    # By default we pull the pre-built image published by the upstream
+    # template repo's CI (~5 min pull vs. ~25 min local build of Theos +
+    # iPhoneOS SDK + Ghidra + Swift toolchain).
+    #
+    # DOCKER_OWNER defaults to the upstream maintainer of this template; if
+    # you fork and want to publish your own image (or run
+    # `.github/workflows/devcontainer-build.yaml` in your fork), override
+    # DOCKER_OWNER in a .env file next to this compose.yaml:
+    #   DOCKER_OWNER=your-github-username
+    #
+    # To force a local build instead of pulling — useful when hacking the
+    # Dockerfile — comment out `image:` and the pre-built pull is skipped
+    # (Compose falls through to `build:`).
+    image: ghcr.io/${DOCKER_OWNER:-yuki-minakami}/devcontainer-swift-ios-tweak:latest
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
       - ../:/home/vscode/app:cached
       - venv:/home/vscode/app/.venv
+      - uv-cache:/home/vscode/.cache/uv
+      - bun-cache:/home/vscode/.bun/install/cache
+      - npm-cache:/home/vscode/.npm
+      - pip-cache:/home/vscode/.cache/pip
+    # host networking helps talking to physical devices via libimobiledevice
+    # / iproxy over USB, and simplifies port relays to jailbroken hosts.
     network_mode: host
     tty: true
     stdin_open: true
 
 volumes:
   venv:
-    driver: local
+  uv-cache:
+  bun-cache:
+  npm-cache:
+  pip-cache:

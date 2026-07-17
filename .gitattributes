@@ -1,0 +1,52 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Source
+*.ts       text
+*.tsx      text
+*.js       text
+*.jsx      text
+*.mjs      text
+*.cjs      text
+*.json     text
+*.jsonc    text
+*.yaml     text
+*.yml      text
+*.toml     text
+*.md       text
+*.mdx      text
+*.py       text
+*.rs       text
+*.swift    text
+*.sh       text eol=lf
+*.zsh      text eol=lf
+*.env      text
+*.html     text
+*.css      text
+*.scss     text
+Dockerfile text
+
+# Binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.webp     binary
+*.svg      text
+*.woff     binary
+*.woff2    binary
+*.pdf      binary
+*.zip      binary
+*.tar.gz   binary
+
+# Generated / lockfiles — hide from PR diff view
+bun.lock          linguist-generated
+package-lock.json linguist-generated
+pnpm-lock.yaml    linguist-generated
+yarn.lock         linguist-generated
+uv.lock           linguist-generated
+poetry.lock       linguist-generated
+Cargo.lock        linguist-generated
+Package.resolved  linguist-generated
+*.gen.ts          linguist-generated
