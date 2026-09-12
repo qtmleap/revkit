@@ -1,149 +1,34 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        // ── Build ──
-        {
-            "label": "frida: build (iOS)",
-            "type": "shell",
-            "command": "npm run build:ios",
-            "options": { "cwd": "${workspaceFolder}/packages/frida" },
-            "group": "build",
-            "problemMatcher": []
-        },
-        {
-            "label": "frida: build (Android)",
-            "type": "shell",
-            "command": "npm run build:android",
-            "options": { "cwd": "${workspaceFolder}/packages/frida" },
-            "group": "build",
-            "problemMatcher": []
-        },
-        {
-            "label": "frida: build (Chrome CDM)",
-            "type": "shell",
-            "command": "npm run build:chrome",
-            "options": { "cwd": "${workspaceFolder}/packages/frida" },
-            "group": "build",
-            "problemMatcher": []
-        },
-        {
-            "label": "chrome-extension: build",
-            "type": "shell",
-            "command": "bun run build",
-            "options": { "cwd": "${workspaceFolder}/packages/chrome-extension" },
-            "group": "build",
-            "problemMatcher": []
-        },
-        // ── Watch ──
-        {
-            "label": "frida: watch (iOS)",
-            "type": "shell",
-            "command": "npm run watch:ios",
-            "options": { "cwd": "${workspaceFolder}/packages/frida" },
-            "isBackground": true,
-            "problemMatcher": []
-        },
-        {
-            "label": "frida: watch (Android)",
-            "type": "shell",
-            "command": "npm run watch:android",
-            "options": { "cwd": "${workspaceFolder}/packages/frida" },
-            "isBackground": true,
-            "problemMatcher": []
-        },
-        // ── Run (Hook) ──
-        {
-            "label": "frida: hook iOS (Netflix)",
-            "type": "shell",
-            "command": "uv run python tools/run.py packages/frida/hook_netflix.js",
-            "dependsOn": "frida: build (iOS)",
-            "group": {
-                "kind": "test",
-                "isDefault": true
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated",
-                "clear": true
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "frida: hook Android (Netflix)",
-            "type": "shell",
-            "command": "uv run python tools/run.py --android packages/frida/hook_netflix_android.js",
-            "dependsOn": "frida: build (Android)",
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated",
-                "clear": true
-            },
-            "problemMatcher": []
-        },
-        // ── Tweak (Theos) ──
-        {
-            "label": "tweak: build",
-            "type": "shell",
-            "command": "make -C ${relativeFileDirname}",
-            "options": { "cwd": "${workspaceFolder}/packages/tweak" },
-            "group": "build",
-            "problemMatcher": []
-        },
-        {
-            "label": "tweak: clean",
-            "type": "shell",
-            "command": "make -C ${relativeFileDirname} clean",
-            "options": { "cwd": "${workspaceFolder}/packages/tweak" },
-            "problemMatcher": []
-        },
-        {
-            "label": "tweak: package",
-            "type": "shell",
-            "command": "make -C ${relativeFileDirname} package",
-            "options": { "cwd": "${workspaceFolder}/packages/tweak" },
-            "group": "build",
-            "problemMatcher": []
-        },
-        // ── oslog ──
-        {
-            "label": "oslog: stream (Charon)",
-            "type": "shell",
-            "command": "bash .vscode/scripts/oslog_stream.sh",
-            "options": { "cwd": "${workspaceFolder}" },
-            "isBackground": true,
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated",
-                "clear": false
-            },
-            "problemMatcher": []
-        },
-        // ── Proxy ──
-        {
-            "label": "mitmproxy: Netflix iOS capture",
-            "type": "shell",
-            "command": "uv run mitmdump --listen-port 9080 --set block_global=false --ssl-insecure -s packages/mitmproxy/netflix_ios_capture.py",
-            "isBackground": true,
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated",
-                "clear": true
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "frida: hook Chrome CDM",
-            "type": "shell",
-            "command": "uv run python tools/run_chrome_cdm.py",
-            "dependsOn": "frida: build (Chrome CDM)",
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated",
-                "clear": true
-            },
-            "problemMatcher": []
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "start-agents",
+      "type": "shell",
+      // Open the tmux session (orchestrator / implementer / codex) as soon as the
+      // folder opens. VS Code has no per-task property for terminal location, so the
+      // editor-area placement comes from "terminal.integrated.defaultLocation" in
+      // settings.json (microsoft/vscode#212070).
+      //
+      // Guarded because this file is copied into every project: repositories without
+      // .devcontainer/start-agents.sh must not get a failing task on open.
+      "command": "[ -x .devcontainer/start-agents.sh ] && exec .devcontainer/start-agents.sh || true",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        // This terminal owns tmux: never auto-close it, and do not echo the command.
+        "echo": false,
+        "close": false,
+        "clear": true,
+        // Show it without stealing focus from the editor.
+        "focus": false
+      },
+      "problemMatcher": []
+    }
+  ]
 }
