@@ -1,9 +1,5 @@
 name: Integration
 on:
-  push:
-    branches-ignore:
-      - main
-      - master
   pull_request:
   workflow_dispatch:
 
